@@ -16,6 +16,7 @@ import (
 
 func main() {
 	state := flag.String("state", "/run/sinty-keyd", "private directory for TPM operations")
+	trust := flag.String("trust", "/var/lib/sinty-keyd/trusted.json", "devices this computer trusts")
 	noTPM := flag.Bool("no-tpm", false, "never remember computers, every unlock is a guest unlock")
 	flag.Parse()
 	log.SetFlags(0)
@@ -23,7 +24,7 @@ func main() {
 	if os.Getenv("DBUS_SYSTEM_BUS_ADDRESS") == "" {
 		os.Setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/run/dbus/system_bus_socket")
 	}
-	cfg := service.Config{}
+	cfg := service.Config{TrustFile: *trust}
 	if !*noTPM {
 		h := tpm.NewHelper(*state)
 		if _, err := h.Fingerprint(); err != nil {

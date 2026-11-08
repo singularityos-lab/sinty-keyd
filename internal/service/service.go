@@ -51,6 +51,7 @@ type Config struct {
 	Mounts    []string
 	SysRoot   string
 	MountInfo string
+	TrustFile string
 }
 
 type SlotInfo struct {
@@ -136,6 +137,8 @@ func fail(err error) *dbus.Error {
 		name = "NotABackup"
 	case errors.Is(err, backup.ErrDamaged):
 		name = "Damaged"
+	case errors.Is(err, errUnknownDevice):
+		name = "Unknown"
 	case errors.Is(err, errPlace):
 		name = "NotAllowed"
 	}
@@ -269,6 +272,9 @@ func (s *Service) Unlock(root, pin string) (string, *dbus.Error) {
 	if err := s.unlock(r, master, mode); err != nil {
 		return "", fail(err)
 	}
+	if mode == key.Trusted {
+		s.seen(KindKey, k.Header.ID)
+	}
 	return mode, nil
 }
 
@@ -316,13 +322,31 @@ func (s *Service) Remember(root, pin, name string) *dbus.Error {
 		name = hw.Name(s.cfg.SysRoot)
 	}
 	return s.withKey(root, func(k *key.Key) error {
-		return k.Remember(s.cfg.TPM, pin, name, hw.FirmwareFamily(s.cfg.SysRoot))
+		if err := k.Remember(s.cfg.TPM, pin, name, hw.FirmwareFamily(s.cfg.SysRoot)); err != nil {
+			return err
+		}
+		here, err := s.cfg.TPM.Fingerprint()
+		if err != nil {
+			return nil
+		}
+		if sl := k.Header.Slot(here); sl != nil {
+			s.trust(Device{Kind: KindKey, ID: k.Header.ID, Name: filepath.Base(k.Root), Counter: sl.Counter})
+		}
+		return nil
 	})
 }
 
 func (s *Service) Forget(root, pin, pc string) *dbus.Error {
 	return s.withKey(root, func(k *key.Key) error {
-		return k.Forget(s.cfg.TPM, pin, pc)
+		if err := k.Forget(s.cfg.TPM, pin, pc); err != nil {
+			return err
+		}
+		if s.cfg.TPM != nil {
+			if here, err := s.cfg.TPM.Fingerprint(); err == nil && here == pc {
+				s.untrust(KindKey, k.Header.ID)
+			}
+		}
+		return nil
 	})
 }
 

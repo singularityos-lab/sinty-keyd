@@ -82,11 +82,13 @@ removable drive (`/run/media/...` or `/media/...`).
 | `Recover(root, code, pin)` | in `sss` | Sets a new PIN with the recovery code. |
 | `Backup(root, pin, fd)` | in `ssh` | Writes the backup to the file descriptor. Unlocks the Key if needed. |
 | `Restore(fd, code, root, pin)` | in `hsss`, out `s` | Makes `root` a new Key from the backup read from the descriptor and returns its recovery code. |
+| `Devices()` | out `a(sssxx)` | Devices this computer trusts: kind (`key` today), id, name, when it was added and when it was last used (Unix time). Kept in `/var/lib/sinty-keyd/trusted.json`. |
+| `Revoke(kind, id)` | in `ss` | Stops trusting a device without having it at hand. For a Key, the TPM counter of its slot here advances: the next unlock here is refused as an older copy (`Copy`) until the recovery code is used. |
 | `Unlocked` | property `as` | Mount points of the unlocked Keys. |
 
 Errors are `dev.sinty.Key1.Error.` followed by `WrongPin`, `WrongCode`,
 `Copy`, `ShortPin`, `Exists`, `NotAKey`, `NotRemembered`, `Tampered`,
-`NotAllowed`, `NoTpm`, `NotABackup`, `Damaged` or `Failed`.
+`NotAllowed`, `NoTpm`, `NotABackup`, `Damaged`, `Unknown` or `Failed`.
 
 ```sh
 gdbus call --system --dest dev.sinty.Key1 --object-path /dev/sinty/Key1 \

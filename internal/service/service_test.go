@@ -307,3 +307,53 @@ func TestBackupAndRestoreOverTheBus(t *testing.T) {
 		t.Fatalf("unlock restored Key with its new PIN: %v", err)
 	}
 }
+
+func TestTrustedDevices(t *testing.T) {
+	s, _, _, drive := setup(t, "pc-a")
+	s.cfg.TrustFile = filepath.Join(t.TempDir(), "trusted.json")
+	if _, err := s.Create(drive, "482915"); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := s.Devices(); len(list) != 0 {
+		t.Fatalf("trusted before remembering: %v", list)
+	}
+	if err := s.Remember(drive, "482915", ""); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := s.Devices()
+	if len(list) != 1 || list[0].Kind != KindKey || list[0].Name != "KEY" || list[0].Added == 0 {
+		t.Fatalf("after remembering: %+v", list)
+	}
+	id := list[0].ID
+	s.Lock(drive)
+	if mode, err := s.Unlock(drive, "482915"); err != nil || mode != "trusted" {
+		t.Fatalf("trusted unlock: %s %v", mode, err)
+	}
+	if err := s.Revoke(KindKey, "nope"); errName(err) != "Unknown" {
+		t.Fatalf("revoke unknown: %v", err)
+	}
+	if err := s.Revoke(KindKey, id); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := s.Devices(); len(list) != 0 {
+		t.Fatalf("after revoke: %v", list)
+	}
+	s.Lock(drive)
+	if _, err := s.Unlock(drive, "482915"); errName(err) != "Copy" {
+		t.Fatalf("a revoked Key must not unlock as trusted here: %v", err)
+	}
+}
+
+func TestForgetHereUntrusts(t *testing.T) {
+	s, _, _, drive := setup(t, "pc-a")
+	s.cfg.TrustFile = filepath.Join(t.TempDir(), "trusted.json")
+	s.Create(drive, "482915")
+	s.Remember(drive, "482915", "")
+	here, _ := s.cfg.TPM.Fingerprint()
+	if err := s.Forget(drive, "482915", here); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := s.Devices(); len(list) != 0 {
+		t.Fatalf("after forget: %v", list)
+	}
+}
