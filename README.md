@@ -41,6 +41,20 @@ The guest wrap and the slot of the current computer are sealed again at
 once. Slots on other computers still hold the old PIN; their next unlock with
 the new PIN falls back to the guest wrap and seals the slot again.
 
+## Starting a computer from a Key
+
+The installer's "Install on: A Sinty Key" writes the whole system to the
+drive: the ESP with the Atom Loops loader, the verified root image and a data
+partition marked portable. The loader records the partition it started from,
+so the Key boots its own system and data even on a computer that has Sinty OS
+installed.
+
+On a portable system, `sintykey` keeps the login key sealed in the TPM of the
+computer where the PIN was set and also wrapped under the PIN with Argon2id.
+A computer whose TPM never sealed it unlocks the wrapped copy. Without the
+TPM's lockout, failed attempts are counted on the Key: after three, each
+attempt waits 5 seconds, doubling up to one hour.
+
 ## D-Bus
 
 The service owns `dev.sinty.Key1` on the system bus at `/dev/sinty/Key1` and
