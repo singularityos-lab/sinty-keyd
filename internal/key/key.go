@@ -171,9 +171,6 @@ func (k *Key) Unlock(t tpm.TPM, pin string) ([]byte, string, error) {
 	}
 	if s != nil && s.PINEpoch == k.Header.PINEpoch {
 		master, err := t.Unseal(pin, s.Public, s.Private)
-		if errors.Is(err, tpm.ErrWrongPIN) {
-			return nil, "", ErrWrongPIN
-		}
 		if err == nil {
 			if err := k.Header.Verify(master); err != nil {
 				seal.Wipe(master)
