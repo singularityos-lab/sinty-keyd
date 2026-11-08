@@ -10,11 +10,13 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
 	"github.com/godbus/dbus/v5/prop"
 
+	"github.com/singularityos-lab/sinty-keyd/internal/backup"
 	"github.com/singularityos-lab/sinty-keyd/internal/fscrypt"
 	"github.com/singularityos-lab/sinty-keyd/internal/hw"
 	"github.com/singularityos-lab/sinty-keyd/internal/key"
@@ -128,6 +130,12 @@ func fail(err error) *dbus.Error {
 		name = "NotAKey"
 	case errors.Is(err, keyfile.ErrTampered):
 		name = "Tampered"
+	case errors.Is(err, backup.ErrWrongCode):
+		name = "WrongCode"
+	case errors.Is(err, backup.ErrNotBackup):
+		name = "NotABackup"
+	case errors.Is(err, backup.ErrDamaged):
+		name = "Damaged"
 	case errors.Is(err, errPlace):
 		name = "NotAllowed"
 	}
@@ -328,6 +336,64 @@ func (s *Service) Recover(root, code, pin string) *dbus.Error {
 	return s.withKey(root, func(k *key.Key) error {
 		return k.Recover(s.cfg.TPM, code, pin)
 	})
+}
+
+func (s *Service) Backup(root, pin string, fd dbus.UnixFD) *dbus.Error {
+	out := os.NewFile(uintptr(fd), "backup")
+	defer out.Close()
+	r, err := s.place(root)
+	if err != nil {
+		return fail(err)
+	}
+	s.mu.Lock()
+	k, err := key.Open(r)
+	if err != nil {
+		s.mu.Unlock()
+		return fail(err)
+	}
+	master, mode, err := k.Unlock(s.cfg.TPM, pin)
+	if err != nil {
+		s.mu.Unlock()
+		return fail(err)
+	}
+	defer seal.Wipe(master)
+	if _, ok := s.open[r]; !ok {
+		if err := s.unlock(r, master, mode); err != nil {
+			s.mu.Unlock()
+			return fail(err)
+		}
+	}
+	s.mu.Unlock()
+	if err := backup.Write(out, k.Header.ID, k.Header.Recovery, master, filepath.Join(r, DataDir), time.Now()); err != nil {
+		return fail(err)
+	}
+	if err := out.Sync(); err != nil && !errors.Is(err, syscall.EINVAL) {
+		return fail(err)
+	}
+	return nil
+}
+
+func (s *Service) Restore(fd dbus.UnixFD, code, root, pin string) (string, *dbus.Error) {
+	in := os.NewFile(uintptr(fd), "backup")
+	defer in.Close()
+	r, err := s.place(root)
+	if err != nil {
+		return "", fail(err)
+	}
+	_, old, src, err := backup.Open(in, code)
+	if err != nil {
+		return "", fail(err)
+	}
+	seal.Wipe(old)
+	fresh, derr := s.Create(r, pin)
+	if derr != nil {
+		return "", derr
+	}
+	if err := backup.Extract(src, filepath.Join(r, DataDir)); err != nil {
+		log.Printf("%s: restore: %v", r, err)
+		return "", fail(err)
+	}
+	return fresh, nil
 }
 
 func mountPoints(path string) (map[string]bool, error) {

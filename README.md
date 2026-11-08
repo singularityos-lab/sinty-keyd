@@ -41,6 +41,15 @@ The guest wrap and the slot of the current computer are sealed again at
 once. Slots on other computers still hold the old PIN; their next unlock with
 the new PIN falls back to the guest wrap and seals the slot again.
 
+### Backup
+
+A backup is one file: the files under `Data/` in a tar stream, sealed in
+64 KiB chunks with XChaCha20-Poly1305 under a key derived from the Key's
+master key, plus the recovery wrap of that master key. The recovery code is
+what opens it. Restoring makes a new Key on another drive with a new PIN and
+a new recovery code, so the lost Key and its old code do not open the new
+one.
+
 ## Starting a computer from a Key
 
 The installer's "Install on: A Sinty Key" writes the whole system to the
@@ -71,11 +80,13 @@ removable drive (`/run/media/...` or `/media/...`).
 | `Forget(root, pin, fingerprint)` | in `sss` | |
 | `ChangePin(root, old, new)` | in `sss` | |
 | `Recover(root, code, pin)` | in `sss` | Sets a new PIN with the recovery code. |
+| `Backup(root, pin, fd)` | in `ssh` | Writes the backup to the file descriptor. Unlocks the Key if needed. |
+| `Restore(fd, code, root, pin)` | in `hsss`, out `s` | Makes `root` a new Key from the backup read from the descriptor and returns its recovery code. |
 | `Unlocked` | property `as` | Mount points of the unlocked Keys. |
 
 Errors are `dev.sinty.Key1.Error.` followed by `WrongPin`, `WrongCode`,
 `Copy`, `ShortPin`, `Exists`, `NotAKey`, `NotRemembered`, `Tampered`,
-`NotAllowed`, `NoTpm` or `Failed`.
+`NotAllowed`, `NoTpm`, `NotABackup`, `Damaged` or `Failed`.
 
 ```sh
 gdbus call --system --dest dev.sinty.Key1 --object-path /dev/sinty/Key1 \

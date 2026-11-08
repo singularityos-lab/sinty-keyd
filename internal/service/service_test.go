@@ -229,3 +229,81 @@ func TestStillMountedNeedsARemovableMount(t *testing.T) {
 		t.Errorf("unescape %q", got)
 	}
 }
+
+func TestBackupAndRestoreOverTheBus(t *testing.T) {
+	if _, err := exec.LookPath("dbus-daemon"); err != nil {
+		t.Skip("dbus-daemon not installed")
+	}
+	cmd := exec.Command("dbus-daemon", "--session", "--nofork", "--print-address")
+	out, _ := cmd.StdoutPipe()
+	if err := cmd.Start(); err != nil {
+		t.Skip(err)
+	}
+	defer cmd.Process.Kill()
+	addr, _ := bufio.NewReader(out).ReadString('\n')
+	server, err := dbus.Connect(strings.TrimSpace(addr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	s, _, media, drive := setup(t, "pc-a")
+	if err := Export(server, s); err != nil {
+		t.Fatal(err)
+	}
+	server.RequestName(Name, dbus.NameFlagDoNotQueue)
+	client, err := dbus.Connect(strings.TrimSpace(addr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	obj := client.Object(Name, Path)
+	var code string
+	if err := obj.Call(Iface+".Create", 0, drive, "482915").Store(&code); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(filepath.Join(drive, DataDir, "Docs"), 0o755)
+	os.WriteFile(filepath.Join(drive, DataDir, "Docs", "plan.txt"), []byte("the plan"), 0o600)
+	obj.Call(Iface+".Lock", 0, drive)
+
+	file := filepath.Join(t.TempDir(), "key.sintybackup")
+	f, _ := os.Create(file)
+	err = obj.Call(Iface+".Backup", 0, drive, "000000", dbus.UnixFD(f.Fd())).Err
+	var de dbus.Error
+	if !errors.As(err, &de) || de.Name != errorPfx+"WrongPin" {
+		t.Fatalf("backup with a wrong PIN: %v", err)
+	}
+	if err := obj.Call(Iface+".Backup", 0, drive, "482915", dbus.UnixFD(f.Fd())).Err; err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if st, _ := os.Stat(file); st.Size() == 0 {
+		t.Fatal("empty backup")
+	}
+
+	fresh := filepath.Join(media, "NEW")
+	os.MkdirAll(fresh, 0o755)
+	in, _ := os.Open(file)
+	err = obj.Call(Iface+".Restore", 0, dbus.UnixFD(in.Fd()), "0000-0000-0000-0000-0000-000", fresh, "1111").Err
+	in.Close()
+	if !errors.As(err, &de) || de.Name != errorPfx+"WrongCode" {
+		t.Fatalf("restore with a wrong code: %v", err)
+	}
+	in, _ = os.Open(file)
+	var next string
+	if err := obj.Call(Iface+".Restore", 0, dbus.UnixFD(in.Fd()), code, fresh, "1111").Store(&next); err != nil {
+		t.Fatal(err)
+	}
+	in.Close()
+	if next == "" || next == code {
+		t.Fatalf("restore must give a new recovery code: %q", next)
+	}
+	got, err := os.ReadFile(filepath.Join(fresh, DataDir, "Docs", "plan.txt"))
+	if err != nil || string(got) != "the plan" {
+		t.Fatalf("restored file: %q %v", got, err)
+	}
+	var mode string
+	obj.Call(Iface+".Lock", 0, fresh)
+	if err := obj.Call(Iface+".Unlock", 0, fresh, "1111").Store(&mode); err != nil {
+		t.Fatalf("unlock restored Key with its new PIN: %v", err)
+	}
+}
