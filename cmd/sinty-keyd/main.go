@@ -54,6 +54,11 @@ func main() {
 		log.Fatalf("cannot own %s: %v", service.Name, err)
 	}
 	log.Printf("serving %s", service.Name)
+	go func() {
+		if err := s.FollowMounts(); err != nil {
+			log.Printf("drive removal not followed: %v", err)
+		}
+	}()
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)

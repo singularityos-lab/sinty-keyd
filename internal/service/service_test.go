@@ -194,3 +194,38 @@ func TestOverTheBus(t *testing.T) {
 		t.Fatalf("slots are not a(sssxb): %v", err)
 	}
 }
+
+func TestPruneLocksRemovedDrive(t *testing.T) {
+	s, c, media, drive := setup(t, "pc-a")
+	info := filepath.Join(t.TempDir(), "mountinfo")
+	s.cfg.MountInfo = info
+	line := func(p string) string { return "36 25 8:1 / " + p + " rw - vfat /dev/sdb1 rw\n" }
+	os.WriteFile(info, []byte(line("/")+line(drive)), 0o644)
+	if _, err := s.Create(drive, "482915"); err != nil {
+		t.Fatal(err)
+	}
+	data := filepath.Join(drive, DataDir)
+	s.Prune()
+	if _, ok := s.open[drive]; !ok || c.keys[data] == "" {
+		t.Fatal("a mounted Key was locked")
+	}
+	os.WriteFile(info, []byte(line("/")+line(media+"/OTHER")), 0o644)
+	s.Prune()
+	if _, ok := s.open[drive]; ok || c.keys[data] != "" {
+		t.Fatal("a removed Key stayed unlocked")
+	}
+}
+
+func TestStillMountedNeedsARemovableMount(t *testing.T) {
+	roots := []string{"/run/media/"}
+	points := map[string]bool{"/": true, "/run/media/alex/KEY": true}
+	if !stillMounted("/run/media/alex/KEY", points, roots) {
+		t.Error("mounted Key")
+	}
+	if stillMounted("/run/media/alex/GONE", points, roots) {
+		t.Error("a path left only on the root filesystem")
+	}
+	if got := unescapeMount(`/run/media/alex/MY\040KEY`); got != "/run/media/alex/MY KEY" {
+		t.Errorf("unescape %q", got)
+	}
+}

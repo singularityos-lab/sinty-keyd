@@ -6,8 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
@@ -42,10 +44,11 @@ func (kernel) RemoveKey(dir, id string) error                { return fscrypt.Re
 func (kernel) SetPolicy(dir, id string) error                { return fscrypt.SetPolicy(dir, id) }
 
 type Config struct {
-	TPM     tpm.TPM
-	Crypt   Crypt
-	Mounts  []string
-	SysRoot string
+	TPM       tpm.TPM
+	Crypt     Crypt
+	Mounts    []string
+	SysRoot   string
+	MountInfo string
 }
 
 type SlotInfo struct {
@@ -77,6 +80,9 @@ func New(cfg Config) *Service {
 	}
 	if len(cfg.Mounts) == 0 {
 		cfg.Mounts = []string{"/run/media/", "/media/"}
+	}
+	if cfg.MountInfo == "" {
+		cfg.MountInfo = "/proc/self/mountinfo"
 	}
 	return &Service{cfg: cfg, open: map[string]unlocked{}}
 }
@@ -322,4 +328,105 @@ func (s *Service) Recover(root, code, pin string) *dbus.Error {
 	return s.withKey(root, func(k *key.Key) error {
 		return k.Recover(s.cfg.TPM, code, pin)
 	})
+}
+
+func mountPoints(path string) (map[string]bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	points := map[string]bool{}
+	for _, line := range strings.Split(string(data), "\n") {
+		f := strings.Fields(line)
+		if len(f) > 4 {
+			points[unescapeMount(f[4])] = true
+		}
+	}
+	return points, nil
+}
+
+func unescapeMount(p string) string {
+	if !strings.Contains(p, "\\") {
+		return p
+	}
+	var b strings.Builder
+	for i := 0; i < len(p); i++ {
+		if p[i] == '\\' && i+3 < len(p) {
+			if n, err := strconv.ParseUint(p[i+1:i+4], 8, 8); err == nil {
+				b.WriteByte(byte(n))
+				i += 3
+				continue
+			}
+		}
+		b.WriteByte(p[i])
+	}
+	return b.String()
+}
+
+func (s *Service) Prune() {
+	points, err := mountPoints(s.cfg.MountInfo)
+	if err != nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := false
+	for r, u := range s.open {
+		if stillMounted(r, points, s.cfg.Mounts) {
+			continue
+		}
+		_ = s.cfg.Crypt.RemoveKey(filepath.Join(r, DataDir), u.id)
+		delete(s.open, r)
+		changed = true
+		log.Printf("%s: drive removed, Key locked", r)
+	}
+	if changed {
+		s.publish()
+	}
+}
+
+func stillMounted(r string, points map[string]bool, roots []string) bool {
+	for p := filepath.Clean(r); ; p = filepath.Dir(p) {
+		if points[p] {
+			for _, m := range roots {
+				if strings.HasPrefix(p+"/", m) && p+"/" != m {
+					return true
+				}
+			}
+			return false
+		}
+		if p == "/" || p == "." {
+			return false
+		}
+	}
+}
+
+func (s *Service) FollowMounts() error {
+	f, err := os.Open(s.cfg.MountInfo)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	ep, err := syscall.EpollCreate1(syscall.EPOLL_CLOEXEC)
+	if err != nil {
+		return err
+	}
+	defer syscall.Close(ep)
+	ev := syscall.EpollEvent{Events: syscall.EPOLLPRI | syscall.EPOLLERR, Fd: int32(f.Fd())}
+	if err := syscall.EpollCtl(ep, syscall.EPOLL_CTL_ADD, int(f.Fd()), &ev); err != nil {
+		return err
+	}
+	events := make([]syscall.EpollEvent, 1)
+	for {
+		n, err := syscall.EpollWait(ep, events, -1)
+		if err == syscall.EINTR {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			s.Prune()
+		}
+	}
 }
