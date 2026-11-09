@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -208,7 +210,60 @@ func tool(name string, args ...string) error {
 }
 
 func (s *Service) install(dev string) error {
-	cmd := exec.Command("atom-install", "--key", dev)
+	return s.runSteps(dev, keyStep(0, 100, "atom-install", "--key", dev))
+}
+
+type step struct {
+	from, span uint32
+	argv       []string
+}
+
+func keyStep(from, span uint32, argv ...string) step { return step{from, span, argv} }
+
+func (s *Service) runSteps(dev string, steps ...step) error {
+	for _, st := range steps {
+		files := 0
+		err := runReporting(st.argv, func(line string) {
+			if f := strings.Fields(line); len(f) == 4 && f[0] == "file" {
+				files, _ = strconv.Atoi(f[2])
+				i, _ := strconv.Atoi(f[1])
+				if i < files {
+					s.progress(dev, st.from+st.span/10*uint32(i-1)/uint32(files-1))
+				}
+				return
+			}
+			v, ok := strings.CutPrefix(line, "progress ")
+			if !ok {
+				return
+			}
+			pct, err := strconv.ParseUint(strings.TrimSpace(v), 10, 32)
+			if err != nil || pct > 100 {
+				return
+			}
+			if files > 0 {
+				s.progress(dev, st.from+st.span/10+(st.span-st.span/10)*uint32(pct)/100)
+			} else {
+				s.progress(dev, st.from+st.span*uint32(pct)/100)
+			}
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) progress(dev string, pct uint32) {
+	if s.onProgress != nil {
+		s.onProgress(dev, pct)
+	}
+	if s.conn != nil {
+		s.conn.Emit(Path, Iface+".Progress", dev, pct)
+	}
+}
+
+func runReporting(argv []string, onLine func(string)) error {
+	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C"}
 	var errOut strings.Builder
 	cmd.Stderr = &errOut
@@ -221,14 +276,10 @@ func (s *Service) install(dev string) error {
 	}
 	sc := bufio.NewScanner(out)
 	for sc.Scan() {
-		if v, ok := strings.CutPrefix(sc.Text(), "progress "); ok {
-			if pct, err := strconv.ParseUint(strings.TrimSpace(v), 10, 32); err == nil && s.conn != nil {
-				s.conn.Emit(Path, Iface+".Progress", dev, uint32(pct))
-			}
-		}
+		onLine(sc.Text())
 	}
 	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("atom-install: %s", strings.TrimSpace(errOut.String()))
+		return fmt.Errorf("%s: %s", filepath.Base(argv[0]), strings.TrimSpace(errOut.String()))
 	}
 	return nil
 }
@@ -313,6 +364,52 @@ func (s *Service) MakeBootable(sender dbus.Sender, device string) *dbus.Error {
 	if err := s.install(dev); err != nil {
 		return fail(driveError(err))
 	}
+	s.Scan()
+	return nil
+}
+
+var keyArchs = []string{"x86_64", "aarch64"}
+
+func localArch() string {
+	if runtime.GOARCH == "arm64" {
+		return "aarch64"
+	}
+	return "x86_64"
+}
+
+func (s *Service) Architectures() ([]string, *dbus.Error) {
+	out := []string{localArch()}
+	for _, a := range keyArchs {
+		if a != out[0] {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+func (s *Service) MakeBootableFor(sender dbus.Sender, device, arch string) *dbus.Error {
+	if arch == "" || arch == localArch() {
+		return s.MakeBootable(sender, device)
+	}
+	if !slices.Contains(keyArchs, arch) {
+		return fail(fmt.Errorf("unknown architecture %q", arch))
+	}
+	dev, _, derr := s.eraseTarget(sender, device)
+	if derr != nil {
+		return derr
+	}
+	dir := filepath.Join(s.cfg.CacheDir, "release-"+arch)
+	if err := tool("wipefs", "-a", dev); err != nil {
+		return fail(err)
+	}
+	s.progress(dev, 0)
+	if err := s.runSteps(dev,
+		keyStep(0, 50, "/usr/libexec/updated.real", "fetch-release", "--arch", arch, "--out", dir),
+		keyStep(50, 50, "atom-install", "--key", "--from", dir, dev),
+	); err != nil {
+		return fail(driveError(err))
+	}
+	os.RemoveAll(dir)
 	s.Scan()
 	return nil
 }

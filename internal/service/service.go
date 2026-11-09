@@ -50,6 +50,7 @@ type Config struct {
 	Crypt       Crypt
 	Mounts      []string
 	SysRoot     string
+	CacheDir    string
 	MountInfo   string
 	TrustFile   string
 	PeekDir     string
@@ -71,12 +72,13 @@ type unlocked struct {
 }
 
 type Service struct {
-	cfg     Config
-	mu      sync.Mutex
-	open    map[string]unlocked
-	present []PresentKey
-	props   *prop.Properties
-	conn    *dbus.Conn
+	cfg        Config
+	mu         sync.Mutex
+	open       map[string]unlocked
+	present    []PresentKey
+	props      *prop.Properties
+	conn       *dbus.Conn
+	onProgress func(dev string, pct uint32)
 }
 
 func New(cfg Config) *Service {
@@ -94,6 +96,9 @@ func New(cfg Config) *Service {
 	}
 	if cfg.PeekDir == "" {
 		cfg.PeekDir = "/run/sinty-keyd/peek"
+	}
+	if cfg.CacheDir == "" {
+		cfg.CacheDir = "/var/cache/sinty-keyd"
 	}
 	if cfg.Mounter == nil {
 		cfg.Mounter = sysMounter{}
