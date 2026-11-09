@@ -122,6 +122,8 @@ func Export(conn *dbus.Conn, s *Service) error {
 			Properties: props.Introspection(Iface),
 			Signals: []introspect.Signal{{Name: "Revoked", Args: []introspect.Arg{
 				{Name: "kind", Type: "s"}, {Name: "id", Type: "s"},
+			}}, {Name: "Progress", Args: []introspect.Arg{
+				{Name: "device", Type: "s"}, {Name: "percent", Type: "u"},
 			}}},
 		}},
 	}

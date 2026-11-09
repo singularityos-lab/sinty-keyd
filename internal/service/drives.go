@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"os"
@@ -19,11 +20,12 @@ import (
 const keyLabel = "SINTYKEY"
 
 type DriveInfo struct {
-	Device string
-	Name   string
-	Size   uint64
-	Root   string
-	Key    bool
+	Device  string
+	Name    string
+	Size    uint64
+	Root    string
+	Key     bool
+	Startup bool
 }
 
 var errSystemDrive = errors.New("this drive holds the running system")
@@ -72,6 +74,19 @@ func (s *Service) mountOf(name string, mounted map[string]string) string {
 	return mounted[strings.TrimSpace(string(num))]
 }
 
+func (s *Service) partLabel(name string) string {
+	b, err := os.ReadFile(filepath.Join(s.blockDir(name), "uevent"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(line, "PARTNAME="); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
 func userMount(p string) bool {
 	return p == "" || strings.HasPrefix(p, "/run/media/") || strings.HasPrefix(p, "/media/") || p == "/run/sintylogs"
 }
@@ -94,6 +109,7 @@ func (s *Service) Drives(sender dbus.Sender) ([]DriveInfo, *dbus.Error) {
 	if _, derr := s.caller(sender); derr != nil {
 		return nil, derr
 	}
+	s.Scan()
 	out, err := s.drives()
 	if err != nil {
 		return nil, fail(err)
@@ -110,7 +126,7 @@ func (s *Service) drives() ([]DriveInfo, error) {
 	out := []DriveInfo{}
 	for _, e := range entries {
 		disk := e.Name()
-		if strings.HasPrefix(disk, "loop") || strings.HasPrefix(disk, "ram") || strings.HasPrefix(disk, "zram") || strings.HasPrefix(disk, "dm-") {
+		if strings.HasPrefix(disk, "loop") || strings.HasPrefix(disk, "ram") || strings.HasPrefix(disk, "zram") || strings.HasPrefix(disk, "dm-") || strings.HasPrefix(disk, "sr") {
 			continue
 		}
 		if _, err := os.Stat(filepath.Join(s.blockDir(disk), "partition")); err == nil {
@@ -126,6 +142,9 @@ func (s *Service) drives() ([]DriveInfo, error) {
 		d := DriveInfo{Device: "/dev/" + disk, Name: s.driveName(disk), Size: sectors * 512}
 		system := false
 		for _, part := range append([]string{disk}, s.partitions(disk)...) {
+			if s.partLabel(part) == "atom-data" {
+				d.Startup = true
+			}
 			root := s.mountOf(part, mounted)
 			if !userMount(root) && !strings.HasPrefix(root, s.cfg.PeekDir+"/") {
 				system = true
@@ -188,8 +207,35 @@ func tool(name string, args ...string) error {
 	return nil
 }
 
+func (s *Service) install(dev string) error {
+	cmd := exec.Command("atom-install", "--key", dev)
+	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C"}
+	var errOut strings.Builder
+	cmd.Stderr = &errOut
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	sc := bufio.NewScanner(out)
+	for sc.Scan() {
+		if v, ok := strings.CutPrefix(sc.Text(), "progress "); ok {
+			if pct, err := strconv.ParseUint(strings.TrimSpace(v), 10, 32); err == nil && s.conn != nil {
+				s.conn.Emit(Path, Iface+".Progress", dev, uint32(pct))
+			}
+		}
+	}
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("atom-install: %s", strings.TrimSpace(errOut.String()))
+	}
+	return nil
+}
+
 func driveError(err error) error {
-	if strings.Contains(err.Error(), "Input/output error") || strings.Contains(err.Error(), "Read-only file system") {
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "input/output error") || strings.Contains(msg, "read-only file system") {
 		return errDriveWorn
 	}
 	return err
@@ -264,7 +310,7 @@ func (s *Service) MakeBootable(sender dbus.Sender, device string) *dbus.Error {
 	if err := tool("wipefs", "-a", dev); err != nil {
 		return fail(err)
 	}
-	if err := tool("atom-install", "--key", dev); err != nil {
+	if err := s.install(dev); err != nil {
 		return fail(driveError(err))
 	}
 	s.Scan()

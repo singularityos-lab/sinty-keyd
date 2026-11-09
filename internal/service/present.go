@@ -168,6 +168,10 @@ func (s *Service) Scan() {
 		root := mounted[strings.TrimSpace(string(num))]
 		if root != "" {
 			k, err = key.Open(root)
+			if err != nil && !errors.Is(err, keyfile.ErrNoKey) && !errors.Is(err, os.ErrNotExist) {
+				log.Printf("%s: %v, reading it again from a private mount", name, err)
+				k, _, err = s.peek(name)
+			}
 		} else {
 			k, _, err = s.peek(name)
 		}

@@ -265,3 +265,58 @@ func TestDriveErrorNamesWornDrive(t *testing.T) {
 		t.Fatal("unrelated error rewritten")
 	}
 }
+
+func TestStartupKeyAndOpticalDrive(t *testing.T) {
+	s, _, sys, _ := presentSetup(t)
+	disk := filepath.Join(sys, "sys/devices/pci0000:00/usb1/sdc")
+	os.WriteFile(filepath.Join(disk, "size"), []byte("15240000\n"), 0o644)
+	os.WriteFile(filepath.Join(disk, "sdc1", "uevent"), []byte("MAJOR=8\nMINOR=33\nDEVNAME=sdc1\nPARTNAME=atom-data\n"), 0o644)
+	os.Symlink(disk, filepath.Join(sys, "sys/class/block/sdc"))
+	sr := filepath.Join(sys, "sys/devices/pci0000:00/ata1/sr0")
+	os.MkdirAll(sr, 0o755)
+	os.WriteFile(filepath.Join(sr, "removable"), []byte("1\n"), 0o644)
+	os.WriteFile(filepath.Join(sr, "size"), []byte("2097152\n"), 0o644)
+	os.Symlink(sr, filepath.Join(sys, "sys/class/block/sr0"))
+	list, err := s.drives()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, d := range list {
+		if d.Device == "/dev/sr0" {
+			t.Fatal("optical drive offered as a Key target")
+		}
+		if d.Device == "/dev/sdc" {
+			found = true
+			if !d.Startup {
+				t.Fatalf("startup key not recognised: %+v", d)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("startup key missing: %+v", list)
+	}
+}
+
+func TestUnreadableMountedKeyIsStillPresent(t *testing.T) {
+	s, _, sys, _ := presentSetup(t)
+	root := filepath.Join(sys, "run/media/alex/SINTYKEY")
+	os.MkdirAll(filepath.Join(root, ".sinty-key", "key.json"), 0o755)
+	fh, _ := os.OpenFile(s.cfg.MountInfo, os.O_APPEND|os.O_WRONLY, 0)
+	fh.WriteString("41 1 8:17 / " + root + " rw - ext4 /dev/sdb1 rw\n")
+	fh.Close()
+	s.Scan()
+	for _, p := range s.Present() {
+		if p.Device == "/dev/sdb1" {
+			return
+		}
+	}
+	t.Fatalf("key mounted elsewhere but unreadable was dropped: %+v", s.Present())
+}
+
+func TestDriveErrorNamesGoIOError(t *testing.T) {
+	err := errors.New("atom-install: write /dev/sdc1: input/output error")
+	if driveError(err) != errDriveWorn {
+		t.Fatalf("Go I/O error not mapped: %v", driveError(err))
+	}
+}
