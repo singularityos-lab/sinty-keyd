@@ -27,6 +27,7 @@ type DriveInfo struct {
 }
 
 var errSystemDrive = errors.New("this drive holds the running system")
+var errDriveWorn = errors.New("this drive stopped accepting data, it is worn out or write protected: use another drive")
 
 func (s *Service) caller(sender dbus.Sender) (*user.User, *dbus.Error) {
 	uid, err := s.senderUID(sender)
@@ -187,6 +188,13 @@ func tool(name string, args ...string) error {
 	return nil
 }
 
+func driveError(err error) error {
+	if strings.Contains(err.Error(), "Input/output error") || strings.Contains(err.Error(), "Read-only file system") {
+		return errDriveWorn
+	}
+	return err
+}
+
 func partName(disk string, n int) string {
 	last := disk[len(disk)-1]
 	if last >= '0' && last <= '9' {
@@ -257,7 +265,7 @@ func (s *Service) MakeBootable(sender dbus.Sender, device string) *dbus.Error {
 		return fail(err)
 	}
 	if err := tool("atom-install", "--key", dev); err != nil {
-		return fail(err)
+		return fail(driveError(err))
 	}
 	s.Scan()
 	return nil

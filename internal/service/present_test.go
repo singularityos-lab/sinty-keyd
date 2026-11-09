@@ -254,3 +254,14 @@ func TestPeekMountDoesNotHideDrive(t *testing.T) {
 	}
 	t.Fatalf("drive with a peek mount was hidden: %+v", list)
 }
+
+func TestDriveErrorNamesWornDrive(t *testing.T) {
+	io := errors.New("atom-install: dd if=/dev/nvme0n1p1 of=/dev/sdc1 bs=4M conv=fsync: exit status 1: dd: IO error: Input/output error")
+	if driveError(io) != errDriveWorn {
+		t.Fatalf("I/O error not mapped: %v", driveError(io))
+	}
+	other := errors.New("sfdisk: no space")
+	if driveError(other) != other {
+		t.Fatal("unrelated error rewritten")
+	}
+}
