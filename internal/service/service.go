@@ -120,6 +120,9 @@ func Export(conn *dbus.Conn, s *Service) error {
 			Name:       Iface,
 			Methods:    introspect.Methods(s),
 			Properties: props.Introspection(Iface),
+			Signals: []introspect.Signal{{Name: "Revoked", Args: []introspect.Arg{
+				{Name: "kind", Type: "s"}, {Name: "id", Type: "s"},
+			}}},
 		}},
 	}
 	return conn.Export(introspect.NewIntrospectable(node), Path, "org.freedesktop.DBus.Introspectable")

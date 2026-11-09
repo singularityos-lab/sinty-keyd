@@ -23,7 +23,9 @@ mount point of the Key under `/run/media/` or `/media/`.
 | `Remember(root, pin, name)` / `Forget(root, pin, fingerprint)` | | Seal the Key in this computer's TPM, or drop the seal. |
 | `ChangePin(root, old, new)` / `Recover(root, code, pin)` | | |
 | `Backup(root, pin, fd)` / `Restore(fd, code, root, pin)` | | Restore returns the new recovery code. |
-| `Devices()` / `Revoke(kind, id)` | | Devices this computer trusts. |
+| `Devices()` / `Revoke(kind, id)` | | Devices this computer trusts: Keys, screens and phones. |
+| `Trust(kind, id, name)` | in `sss` | Adds a screen or phone. System services only. |
+| `Revoked(kind, id)` | signal | |
 
 Errors are `dev.sinty.Key1.Error.` followed by `WrongPin`, `WrongCode`,
 `Copy`, `ShortPin`, `Exists`, `NotAKey`, `NotRemembered`, `Tampered`,

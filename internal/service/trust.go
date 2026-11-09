@@ -138,7 +138,24 @@ func (s *Service) Revoke(kind, id string) *dbus.Error {
 			}
 		}
 		s.untrust(kind, id)
+		if s.conn != nil {
+			s.conn.Emit(Path, Iface+".Revoked", kind, id)
+		}
 		return nil
 	}
 	return dbus.NewError(errorPfx+"Unknown", []interface{}{errUnknownDevice.Error()})
+}
+
+func (s *Service) Trust(sender dbus.Sender, kind, id, name string) *dbus.Error {
+	uid, err := s.senderUID(sender)
+	if err != nil || uid != uint32(os.Getuid()) {
+		return dbus.NewError(errorPfx+"NotAllowed", []interface{}{"only system services can add trusted devices"})
+	}
+	if kind == "" || kind == KindKey || id == "" {
+		return dbus.NewError(errorPfx+"NotAllowed", []interface{}{"a Sinty Key is trusted by remembering it"})
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.trust(Device{Kind: kind, ID: id, Name: name})
+	return nil
 }
