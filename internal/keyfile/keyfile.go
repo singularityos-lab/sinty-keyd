@@ -40,6 +40,7 @@ type Header struct {
 	Format   int       `json:"format"`
 	ID       string    `json:"id"`
 	Level    string    `json:"level"`
+	Owner    string    `json:"owner,omitempty"`
 	Created  time.Time `json:"created"`
 	Secret   []byte    `json:"secret"`
 	Guest    []byte    `json:"guest"`

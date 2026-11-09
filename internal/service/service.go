@@ -46,12 +46,15 @@ func (kernel) RemoveKey(dir, id string) error                { return fscrypt.Re
 func (kernel) SetPolicy(dir, id string) error                { return fscrypt.SetPolicy(dir, id) }
 
 type Config struct {
-	TPM       tpm.TPM
-	Crypt     Crypt
-	Mounts    []string
-	SysRoot   string
-	MountInfo string
-	TrustFile string
+	TPM         tpm.TPM
+	Crypt       Crypt
+	Mounts      []string
+	SysRoot     string
+	MountInfo   string
+	TrustFile   string
+	PeekDir     string
+	Mounter     Mounter
+	AttachUsers []string
 }
 
 type SlotInfo struct {
@@ -68,10 +71,12 @@ type unlocked struct {
 }
 
 type Service struct {
-	cfg   Config
-	mu    sync.Mutex
-	open  map[string]unlocked
-	props *prop.Properties
+	cfg     Config
+	mu      sync.Mutex
+	open    map[string]unlocked
+	present []PresentKey
+	props   *prop.Properties
+	conn    *dbus.Conn
 }
 
 func New(cfg Config) *Service {
@@ -87,15 +92,23 @@ func New(cfg Config) *Service {
 	if cfg.MountInfo == "" {
 		cfg.MountInfo = "/proc/self/mountinfo"
 	}
+	if cfg.PeekDir == "" {
+		cfg.PeekDir = "/run/sinty-keyd/peek"
+	}
+	if cfg.Mounter == nil {
+		cfg.Mounter = sysMounter{}
+	}
 	return &Service{cfg: cfg, open: map[string]unlocked{}}
 }
 
 func Export(conn *dbus.Conn, s *Service) error {
+	s.conn = conn
 	if err := conn.Export(s, Path, Iface); err != nil {
 		return err
 	}
 	props, err := prop.Export(conn, Path, prop.Map{Iface: {
 		"Unlocked": {Value: []string{}, Emit: prop.EmitTrue},
+		"Present":  {Value: []PresentKey{}, Emit: prop.EmitTrue},
 	}})
 	if err != nil {
 		return err
@@ -235,7 +248,7 @@ func (s *Service) Create(root, pin string) (string, *dbus.Error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	k, code, err := key.Create(r, pin)
+	k, code, err := key.CreateFor(r, pin, ownerOf(r))
 	if err != nil {
 		return "", fail(err)
 	}
@@ -517,6 +530,7 @@ func (s *Service) FollowMounts() error {
 		}
 		if n > 0 {
 			s.Prune()
+			s.Scan()
 		}
 	}
 }

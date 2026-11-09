@@ -41,6 +41,10 @@ func guestSecret(pin string, secret []byte) []byte {
 }
 
 func Create(root, pin string) (*Key, string, error) {
+	return CreateFor(root, pin, "")
+}
+
+func CreateFor(root, pin, owner string) (*Key, string, error) {
 	if len(pin) < MinPIN {
 		return nil, "", ErrShortPIN
 	}
@@ -71,6 +75,7 @@ func Create(root, pin string) (*Key, string, error) {
 		Format:   keyfile.Format,
 		ID:       hex.EncodeToString(id),
 		Level:    LevelBase,
+		Owner:    owner,
 		Created:  k.Now().UTC().Truncate(time.Second),
 		Secret:   secret,
 		PINEpoch: 1,
@@ -139,6 +144,11 @@ func (k *Key) slot(t tpm.TPM) (*keyfile.Slot, error) {
 		return nil, ErrCopy
 	}
 	return s, nil
+}
+
+func (k *Key) Copy(t tpm.TPM) bool {
+	_, err := k.slot(t)
+	return errors.Is(err, ErrCopy)
 }
 
 func (k *Key) advance(t tpm.TPM, s *keyfile.Slot, master []byte) error {

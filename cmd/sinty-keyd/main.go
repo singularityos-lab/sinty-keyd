@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,13 +19,14 @@ func main() {
 	state := flag.String("state", "/run/sinty-keyd", "private directory for TPM operations")
 	trust := flag.String("trust", "/var/lib/sinty-keyd/trusted.json", "devices this computer trusts")
 	noTPM := flag.Bool("no-tpm", false, "never remember computers, every unlock is a guest unlock")
+	attach := flag.String("attach-users", "greeter", "comma-separated users allowed to attach a Key at login")
 	flag.Parse()
 	log.SetFlags(0)
 	log.SetPrefix("sinty-keyd: ")
 	if os.Getenv("DBUS_SYSTEM_BUS_ADDRESS") == "" {
 		os.Setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/run/dbus/system_bus_socket")
 	}
-	cfg := service.Config{TrustFile: *trust}
+	cfg := service.Config{TrustFile: *trust, AttachUsers: strings.Split(*attach, ",")}
 	if !*noTPM {
 		h := tpm.NewHelper(*state)
 		if _, err := h.Fingerprint(); err != nil {
@@ -55,6 +57,11 @@ func main() {
 		log.Fatalf("cannot own %s: %v", service.Name, err)
 	}
 	log.Printf("serving %s", service.Name)
+	go func() {
+		if err := s.FollowDevices(); err != nil {
+			log.Printf("drive arrival not followed: %v", err)
+		}
+	}()
 	go func() {
 		if err := s.FollowMounts(); err != nil {
 			log.Printf("drive removal not followed: %v", err)
