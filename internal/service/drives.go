@@ -326,6 +326,9 @@ func (s *Service) Prepare(sender dbus.Sender, device string) (string, *dbus.Erro
 	if derr != nil {
 		return "", derr
 	}
+	if err := s.checkCapacity(dev); err != nil {
+		return "", fail(err)
+	}
 	part := partName(dev, 1)
 	if err := tool("wipefs", "-a", dev); err != nil {
 		return "", fail(err)
@@ -358,12 +361,18 @@ func (s *Service) MakeBootable(sender dbus.Sender, device string) *dbus.Error {
 	if derr != nil {
 		return derr
 	}
+	if err := s.checkCapacity(dev); err != nil {
+		return fail(err)
+	}
 	if err := tool("wipefs", "-a", dev); err != nil {
 		return fail(err)
 	}
 	if err := s.install(dev); err != nil {
-		return fail(driveError(err))
+		err = driveError(err)
+		s.reportStartup(dev, err)
+		return fail(err)
 	}
+	s.reportStartup(dev, nil)
 	s.Scan()
 	return nil
 }
@@ -398,6 +407,9 @@ func (s *Service) MakeBootableFor(sender dbus.Sender, device, arch string) *dbus
 	if derr != nil {
 		return derr
 	}
+	if err := s.checkCapacity(dev); err != nil {
+		return fail(err)
+	}
 	dir := filepath.Join(s.cfg.CacheDir, "release-"+arch)
 	if err := tool("wipefs", "-a", dev); err != nil {
 		return fail(err)
@@ -407,8 +419,11 @@ func (s *Service) MakeBootableFor(sender dbus.Sender, device, arch string) *dbus
 		keyStep(0, 50, "/usr/libexec/updated.real", "fetch-release", "--arch", arch, "--out", dir),
 		keyStep(50, 50, "atom-install", "--key", "--from", dir, dev),
 	); err != nil {
-		return fail(driveError(err))
+		err = driveError(err)
+		s.reportStartup(dev, err)
+		return fail(err)
 	}
+	s.reportStartup(dev, nil)
 	os.RemoveAll(dir)
 	s.Scan()
 	return nil

@@ -156,6 +156,8 @@ func fail(err error) *dbus.Error {
 		name = "Tampered"
 	case errors.Is(err, backup.ErrWrongCode):
 		name = "WrongCode"
+	case errors.Is(err, errFakeDrive):
+		name = "FakeDrive"
 	case errors.Is(err, backup.ErrNotBackup):
 		name = "NotABackup"
 	case errors.Is(err, backup.ErrDamaged):
@@ -438,8 +440,12 @@ func (s *Service) Restore(fd dbus.UnixFD, code, root, pin string) (string, *dbus
 	}
 	if err := backup.Extract(src, filepath.Join(r, DataDir)); err != nil {
 		log.Printf("%s: restore: %v", r, err)
+		if errors.Is(err, backup.ErrDamaged) {
+			s.reportCheck(s.deviceOf(in), "key-backup", false, err.Error())
+		}
 		return "", fail(err)
 	}
+	s.reportCheck(s.deviceOf(in), "key-backup", true, "")
 	return fresh, nil
 }
 
