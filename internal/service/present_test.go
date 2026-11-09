@@ -212,3 +212,45 @@ func TestAttachOverTheBus(t *testing.T) {
 		t.Fatalf("unlocked: %v %v", unlockedList, err)
 	}
 }
+
+func TestStalePeekMountIsSweptAndNotSystem(t *testing.T) {
+	s, m, sys, _ := presentSetup(t)
+	stale := filepath.Join(sys, "run/sinty-keyd/peek/sdc1")
+	os.MkdirAll(stale, 0o700)
+	m.mounts[stale] = "x"
+	fh, _ := os.OpenFile(s.cfg.MountInfo, os.O_APPEND|os.O_WRONLY, 0)
+	fh.WriteString("41 1 8:33 / " + stale + " ro - ext4 /dev/sdc1 ro\n")
+	fh.Close()
+	if !strings.HasPrefix(stale, s.cfg.PeekDir+"/") {
+		t.Fatal("bad fixture")
+	}
+	mounted, _ := s.devNumbers()
+	if root := mounted["8:33"]; root != stale {
+		t.Fatalf("fixture mount: %q", root)
+	}
+	s.Scan()
+	if _, ok := m.mounts[stale]; ok {
+		t.Fatal("stale peek mount was not swept")
+	}
+}
+
+func TestPeekMountDoesNotHideDrive(t *testing.T) {
+	s, _, sys, _ := presentSetup(t)
+	disk := filepath.Join(sys, "sys/devices/pci0000:00/usb1/sdc")
+	os.WriteFile(filepath.Join(disk, "size"), []byte("15240000\n"), 0o644)
+	os.Symlink(disk, filepath.Join(sys, "sys/class/block/sdc"))
+	peek := filepath.Join(s.cfg.PeekDir, "sdc1")
+	fh, _ := os.OpenFile(s.cfg.MountInfo, os.O_APPEND|os.O_WRONLY, 0)
+	fh.WriteString("41 1 8:33 / " + peek + " ro - ext4 /dev/sdc1 ro\n")
+	fh.Close()
+	list, err := s.drives()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range list {
+		if d.Device == "/dev/sdc" {
+			return
+		}
+	}
+	t.Fatalf("drive with a peek mount was hidden: %+v", list)
+}

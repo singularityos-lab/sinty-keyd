@@ -93,9 +93,17 @@ func (s *Service) Drives(sender dbus.Sender) ([]DriveInfo, *dbus.Error) {
 	if _, derr := s.caller(sender); derr != nil {
 		return nil, derr
 	}
-	entries, err := os.ReadDir(filepath.Join(s.cfg.SysRoot, "sys/class/block"))
+	out, err := s.drives()
 	if err != nil {
 		return nil, fail(err)
+	}
+	return out, nil
+}
+
+func (s *Service) drives() ([]DriveInfo, error) {
+	entries, err := os.ReadDir(filepath.Join(s.cfg.SysRoot, "sys/class/block"))
+	if err != nil {
+		return nil, err
 	}
 	mounted, _ := s.devNumbers()
 	out := []DriveInfo{}
@@ -118,7 +126,7 @@ func (s *Service) Drives(sender dbus.Sender) ([]DriveInfo, *dbus.Error) {
 		system := false
 		for _, part := range append([]string{disk}, s.partitions(disk)...) {
 			root := s.mountOf(part, mounted)
-			if !userMount(root) {
+			if !userMount(root) && !strings.HasPrefix(root, s.cfg.PeekDir+"/") {
 				system = true
 			}
 			if root != "" && d.Root == "" && strings.HasPrefix(root, "/run/media/") {

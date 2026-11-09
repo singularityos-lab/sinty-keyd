@@ -59,7 +59,7 @@ func (sysMounter) Mount(dev, dir, opts string, readOnly bool) error {
 	return last
 }
 
-func (sysMounter) Unmount(dir string) error { return syscall.Unmount(dir, 0) }
+func (sysMounter) Unmount(dir string) error { return syscall.Unmount(dir, syscall.MNT_DETACH) }
 
 func ownerOf(root string) string {
 	rest, ok := strings.CutPrefix(filepath.Clean(root), "/run/media/")
@@ -148,6 +148,12 @@ func (s *Service) Scan() {
 		return
 	}
 	mounted, _ := s.devNumbers()
+	for num, root := range mounted {
+		if strings.HasPrefix(root, s.cfg.PeekDir+"/") && s.cfg.Mounter.Unmount(root) == nil {
+			os.Remove(root)
+			delete(mounted, num)
+		}
+	}
 	found := []PresentKey{}
 	for _, e := range entries {
 		name := e.Name()
