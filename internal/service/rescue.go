@@ -14,7 +14,7 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
-const rescueWait = 60 * time.Second
+const rescueWait = 5 * time.Minute
 
 var (
 	errNotPortable = errors.New("this computer is not running from a Sinty Key")
