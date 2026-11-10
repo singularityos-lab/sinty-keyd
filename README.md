@@ -30,18 +30,31 @@ mount point of the Key under `/run/media/` or `/media/`.
 | `Devices()` / `Revoke(kind, id)` | | Devices this computer trusts: Keys, screens and phones. |
 | `Trust(kind, id, name)` | in `sss` | Adds a screen or phone. System services only. |
 | `Revoked(kind, id)` | signal | |
+| `Badge` | property `s` | Id of the Key whose session is open on this computer, empty if none. |
+| `BadgeAllowed` | property `b` | Whether this computer opens sessions from a Key without a local account. |
+| `Badge(device, pin)` | in `ss`, out `ss` | Opens a session from the Key: returns the user (`sinty-badge`) and a one-time ticket for the login. Login screen and root only. |
+| `ResumeBadge(pin)` | in `s` | Unlocks the session again after the Key was taken out and plugged back in. |
+| `EndBadge()` | | Ends the session, removes the account and unmounts the Key. |
+| `SetBadgeAllowed(on)` | in `b` | Administrators only. Stored in `/etc/sinty/key-badge`. |
+| `BadgeKeyRemoved` / `BadgeKeyReturned` | signal | The session's Key was taken out, or is back. Without it the session ends after two minutes. |
 
 Errors are `dev.sinty.Key1.Error.` followed by `WrongPin`, `WrongCode`,
 `Copy`, `ShortPin`, `Exists`, `NotAKey`, `NotRemembered`, `Tampered`,
 `NotAllowed`, `NoTpm`, `NotABackup`, `Damaged`, `Unknown`,
 `SecurityKeyRequired`, `UnknownSecurityKey`, `SecurityKeyExists`,
 `TooManySecurityKeys`, `NoSecurityKey`, `NotTouched`, `SecurityKeyPinRequired`,
-`WrongSecurityKeyPin`, `SecurityKeyPinBlocked`, `SecurityKeyUnsupported` or
-`Failed`.
+`WrongSecurityKeyPin`, `SecurityKeyPinBlocked`, `SecurityKeyUnsupported`,
+`Disabled`, `Unverified`, `Busy` or `Failed`.
 
 A security key must support the CTAP2 `hmac-secret` extension. Its secret
 joins the PIN and the Key's own secret in the derivation of the master key,
 and masks what the TPM seals. The recovery code opens the Key without one.
+
+A session from a Key runs as the transient account `sinty-badge` (uid 61000).
+The Key's home is mounted on `/run/sinty-badge/home` through an idmapped mount,
+so files keep the Key's own owner on disk. The computer opens one only when it
+boots a verified system: a `sing.roothash=` on the command line, kernel lockdown
+on and the root on a verity device.
 
 ## Building
 

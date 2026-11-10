@@ -197,6 +197,7 @@ func (s *Service) Scan() {
 	s.present = found
 	s.mu.Unlock()
 	s.setProp("Present", found)
+	s.watchBadge(found)
 }
 
 func (s *Service) setProp(name string, v interface{}) {

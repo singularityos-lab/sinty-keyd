@@ -17,6 +17,7 @@ import (
 	"github.com/godbus/dbus/v5/prop"
 
 	"github.com/singularityos-lab/sinty-keyd/internal/backup"
+	"github.com/singularityos-lab/sinty-keyd/internal/badge"
 	"github.com/singularityos-lab/sinty-keyd/internal/fido2"
 	"github.com/singularityos-lab/sinty-keyd/internal/fscrypt"
 	"github.com/singularityos-lab/sinty-keyd/internal/hw"
@@ -58,6 +59,10 @@ type Config struct {
 	Mounter      Mounter
 	AttachUsers  []string
 	SecurityKeys func() ([]fido2.Transport, error)
+	BadgePolicy  string
+	BadgeGrace   time.Duration
+	Verify       func(sysroot string) error
+	MapHome      func(src, dst string, diskUID, diskGID, uid, gid int) error
 }
 
 type SlotInfo struct {
@@ -82,6 +87,7 @@ type Service struct {
 	conn       *dbus.Conn
 	onProgress func(dev string, pct uint32)
 	keys       securityKeys
+	badge      *badgeSession
 }
 
 func New(cfg Config) *Service {
@@ -109,6 +115,18 @@ func New(cfg Config) *Service {
 	if cfg.SecurityKeys == nil {
 		cfg.SecurityKeys = hidKeys(cfg.SysRoot)
 	}
+	if cfg.BadgePolicy == "" {
+		cfg.BadgePolicy = filepath.Join(cfg.SysRoot, "etc/sinty/key-badge")
+	}
+	if cfg.BadgeGrace == 0 {
+		cfg.BadgeGrace = badgeGrace
+	}
+	if cfg.Verify == nil {
+		cfg.Verify = badge.Verified
+	}
+	if cfg.MapHome == nil {
+		cfg.MapHome = badge.MountMapped
+	}
 	return &Service{cfg: cfg, open: map[string]unlocked{}, keys: securityKeys{open: cfg.SecurityKeys}}
 }
 
@@ -118,8 +136,10 @@ func Export(conn *dbus.Conn, s *Service) error {
 		return err
 	}
 	props, err := prop.Export(conn, Path, prop.Map{Iface: {
-		"Unlocked": {Value: []string{}, Emit: prop.EmitTrue},
-		"Present":  {Value: []PresentKey{}, Emit: prop.EmitTrue},
+		"Unlocked":     {Value: []string{}, Emit: prop.EmitTrue},
+		"Present":      {Value: []PresentKey{}, Emit: prop.EmitTrue},
+		"Badge":        {Value: "", Emit: prop.EmitTrue},
+		"BadgeAllowed": {Value: badge.Allowed(s.cfg.BadgePolicy), Emit: prop.EmitTrue},
 	}})
 	if err != nil {
 		return err
@@ -135,7 +155,7 @@ func Export(conn *dbus.Conn, s *Service) error {
 				{Name: "kind", Type: "s"}, {Name: "id", Type: "s"},
 			}}, {Name: "Progress", Args: []introspect.Arg{
 				{Name: "device", Type: "s"}, {Name: "percent", Type: "u"},
-			}}},
+			}}, {Name: "BadgeKeyRemoved"}, {Name: "BadgeKeyReturned"}},
 		}},
 	}
 	return conn.Export(introspect.NewIntrospectable(node), Path, "org.freedesktop.DBus.Introspectable")

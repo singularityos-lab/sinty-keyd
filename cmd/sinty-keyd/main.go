@@ -11,11 +11,15 @@ import (
 
 	"github.com/godbus/dbus/v5"
 
+	"github.com/singularityos-lab/sinty-keyd/internal/badge"
 	"github.com/singularityos-lab/sinty-keyd/internal/service"
 	"github.com/singularityos-lab/sinty-keyd/internal/tpm"
 )
 
 func main() {
+	if badge.Hold() {
+		return
+	}
 	state := flag.String("state", "/run/sinty-keyd", "private directory for TPM operations")
 	trust := flag.String("trust", "/var/lib/sinty-keyd/trusted.json", "devices this computer trusts")
 	noTPM := flag.Bool("no-tpm", false, "never remember computers, every unlock is a guest unlock")
