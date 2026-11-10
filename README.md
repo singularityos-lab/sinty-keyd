@@ -36,6 +36,9 @@ mount point of the Key under `/run/media/` or `/media/`.
 | `ResumeBadge(pin)` | in `s` | Unlocks the session again after the Key was taken out and plugged back in. |
 | `EndBadge()` | | Ends the session, removes the account and unmounts the Key. |
 | `SetBadgeAllowed(on)` | in `b` | Administrators only. Stored in `/etc/sinty/key-badge`. |
+| `StartupSync(device)` | in `s`, out `sss` | For a startup Key: which side is older (`key`, `computer` or empty), the Key's version and this computer's. Only the same architecture, and only when the newer side keeps the signed release of its version. |
+| `UpdateStartupKey(device)` | in `s` | Stages this computer's release into the Key's slots without the network. The Key tries it on its next start and falls back if it does not boot. |
+| `UpdateFromStartupKey(device)` | in `s` | Administrators only. Stages the Key's release on this computer like an update from the network; it is tried on the next restart. |
 | `BadgeKeyRemoved` / `BadgeKeyReturned` | signal | The session's Key was taken out, or is back. Without it the session ends after two minutes. |
 
 Errors are `dev.sinty.Key1.Error.` followed by `WrongPin`, `WrongCode`,

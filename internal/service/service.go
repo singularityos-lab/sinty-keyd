@@ -63,6 +63,7 @@ type Config struct {
 	BadgeGrace   time.Duration
 	Verify       func(sysroot string) error
 	MapHome      func(src, dst string, diskUID, diskGID, uid, gid int) error
+	Updated      func(onLine func(string), args ...string) error
 }
 
 type SlotInfo struct {
@@ -88,6 +89,7 @@ type Service struct {
 	onProgress func(dev string, pct uint32)
 	keys       securityKeys
 	badge      *badgeSession
+	syncMu     sync.Mutex
 }
 
 func New(cfg Config) *Service {
@@ -126,6 +128,9 @@ func New(cfg Config) *Service {
 	}
 	if cfg.MapHome == nil {
 		cfg.MapHome = badge.MountMapped
+	}
+	if cfg.Updated == nil {
+		cfg.Updated = runUpdated
 	}
 	return &Service{cfg: cfg, open: map[string]unlocked{}, keys: securityKeys{open: cfg.SecurityKeys}}
 }
