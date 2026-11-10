@@ -77,7 +77,7 @@ func TestAccount(t *testing.T) {
 		t.Fatalf("shadow mode %v", st.Mode())
 	}
 	sh, _ := os.ReadFile(filepath.Join(etc, "shadow"))
-	if !strings.Contains(string(sh), "sinty-badge:!:") || !strings.Contains(string(sh), "alex:$6$x") {
+	if !strings.Contains(string(sh), "sinty-badge:*:") || !strings.Contains(string(sh), "alex:$6$x") {
 		t.Fatalf("shadow:\n%s", sh)
 	}
 	if err := RemoveAccount(etc); err != nil {

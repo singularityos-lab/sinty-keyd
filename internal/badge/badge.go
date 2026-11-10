@@ -127,7 +127,7 @@ func tables() []table {
 			return strings.Join([]string{User, "x", id, id, gecos, Home, Shell}, ":")
 		}},
 		{"group", 0o644, func(string) string { return User + ":x:" + id + ":" }},
-		{"shadow", 0o600, func(string) string { return User + ":!:1::::::" }},
+		{"shadow", 0o600, func(string) string { return User + ":*:1::::::" }},
 	}
 }
 
