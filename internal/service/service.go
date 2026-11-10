@@ -92,6 +92,7 @@ type Service struct {
 	badge      *badgeSession
 	syncMu     sync.Mutex
 	rescue     *rescueRun
+	moveMu     sync.Mutex
 }
 
 func New(cfg Config) *Service {

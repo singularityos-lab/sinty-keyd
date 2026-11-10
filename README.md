@@ -42,6 +42,9 @@ mount point of the Key under `/run/media/` or `/media/`.
 | `RescueTargets()` | out `a(sstsbb)` | When this computer runs from a Key: its internal drives that hold a Sinty installation. |
 | `Rescue(device)` | in `s`, out `s` | Administrators only. Starts the recovery service on that drive and returns its socket, which only the caller can open. Copied files go to `~/Rescued`. |
 | `EndRescue()` | | Stops the rescue and unmounts the computer's drive. |
+| `MoveHome(root, user, direction)` | in `sss` | Copies a home between this computer and an open Key (`to-key` or `from-key`), then checks every file against the original. Files are encrypted again with the keys of the side they land on. An interrupted copy picks up where it stopped. `user` is empty for the caller; only root (the setup assistant) names another account. Progress comes as `Progress(root, percent)`. |
+| `MoveHomeState(root, user, direction)` | in `sss`, out `s` | `copying` when a copy was interrupted, `verified` when it is complete and checked, empty otherwise. |
+| `FinishMove(root, user, direction, remove)` | in `sssb` | After a checked copy: with `remove`, checks it once more and deletes the original; without, keeps both. |
 | `BadgeKeyRemoved` / `BadgeKeyReturned` | signal | The session's Key was taken out, or is back. Without it the session ends after two minutes. |
 
 Errors are `dev.sinty.Key1.Error.` followed by `WrongPin`, `WrongCode`,
