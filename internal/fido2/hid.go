@@ -56,6 +56,10 @@ func OpenHID(path string) (*HID, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newHID(f)
+}
+
+func newHID(f *os.File) (*HID, error) {
 	h := &HID{f: f, cid: broadcast, Timeout: 30 * time.Second}
 	nonce := make([]byte, 8)
 	rand.Read(nonce)
