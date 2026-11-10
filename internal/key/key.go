@@ -34,10 +34,11 @@ type Key struct {
 	Root   string
 	Header *keyfile.Header
 	Now    func() time.Time
+	Second SecondFactor
 }
 
-func guestSecret(pin string, secret []byte) []byte {
-	return append(append([]byte(pin), 0), secret...)
+func guestSecret(pin string, secret, factor []byte) []byte {
+	return append(append(append([]byte(pin), 0), secret...), factor...)
 }
 
 func Create(root, pin string) (*Key, string, error) {
@@ -72,7 +73,7 @@ func CreateFor(root, pin, owner string) (*Key, string, error) {
 	}
 	k := &Key{Root: root, Now: time.Now}
 	h := &keyfile.Header{
-		Format:   keyfile.Format,
+		Format:   keyfile.FormatBase,
 		ID:       hex.EncodeToString(id),
 		Level:    LevelBase,
 		Owner:    owner,
@@ -81,7 +82,7 @@ func CreateFor(root, pin, owner string) (*Key, string, error) {
 		PINEpoch: 1,
 		Slots:    []keyfile.Slot{},
 	}
-	if h.Guest, err = seal.Wrap(master, guestSecret(pin, secret)); err != nil {
+	if h.Guest, err = seal.Wrap(master, guestSecret(pin, secret, nil)); err != nil {
 		return nil, "", err
 	}
 	if h.Recovery, err = seal.Wrap(master, []byte(code)); err != nil {
@@ -109,8 +110,8 @@ func (k *Key) save(master []byte) error {
 	return keyfile.Write(k.Root, k.Header)
 }
 
-func (k *Key) guest(pin string) ([]byte, error) {
-	master, err := seal.Unwrap(k.Header.Guest, guestSecret(pin, k.Header.Secret))
+func (k *Key) guest(pin string, factor []byte) ([]byte, error) {
+	master, err := seal.Unwrap(k.Header.Guest, guestSecret(pin, k.Header.Secret, factor))
 	if errors.Is(err, seal.ErrWrongSecret) {
 		return nil, ErrWrongPIN
 	}
@@ -166,7 +167,14 @@ func (k *Key) advance(t tpm.TPM, s *keyfile.Slot, master []byte) error {
 }
 
 func (k *Key) reseal(t tpm.TPM, s *keyfile.Slot, master []byte, pin string) error {
-	pub, priv, err := t.Seal(master, pin)
+	factor, err := k.factorOf(master)
+	if err != nil {
+		return err
+	}
+	defer seal.Wipe(factor)
+	payload := mask(master, factor)
+	defer seal.Wipe(payload)
+	pub, priv, err := t.Seal(payload, pin)
 	if err != nil {
 		return err
 	}
@@ -179,9 +187,16 @@ func (k *Key) Unlock(t tpm.TPM, pin string) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	factor, err := k.touch()
+	if err != nil {
+		return nil, "", err
+	}
+	defer seal.Wipe(factor)
 	if s != nil && s.PINEpoch == k.Header.PINEpoch {
-		master, err := t.Unseal(pin, s.Public, s.Private)
+		sealed, err := t.Unseal(pin, s.Public, s.Private)
 		if err == nil {
+			master := mask(sealed, factor)
+			seal.Wipe(sealed)
 			if err := k.Header.Verify(master); err != nil {
 				seal.Wipe(master)
 				return nil, "", err
@@ -193,7 +208,7 @@ func (k *Key) Unlock(t tpm.TPM, pin string) ([]byte, string, error) {
 			return master, Trusted, nil
 		}
 	}
-	master, err := k.guest(pin)
+	master, err := k.guest(pin, factor)
 	if err != nil {
 		return nil, "", err
 	}
@@ -210,7 +225,7 @@ func (k *Key) Remember(t tpm.TPM, pin, name, firmware string) error {
 	if err != nil {
 		return err
 	}
-	master, err := k.guest(pin)
+	master, err := k.unlockGuest(pin)
 	if err != nil {
 		return err
 	}
@@ -238,7 +253,7 @@ func (k *Key) Remember(t tpm.TPM, pin, name, firmware string) error {
 }
 
 func (k *Key) Forget(t tpm.TPM, pin, pc string) error {
-	master, err := k.guest(pin)
+	master, err := k.unlockGuest(pin)
 	if err != nil {
 		return err
 	}
@@ -265,7 +280,12 @@ func (k *Key) setPIN(t tpm.TPM, master []byte, pin string) error {
 	if len(pin) < MinPIN {
 		return ErrShortPIN
 	}
-	g, err := seal.Wrap(master, guestSecret(pin, k.Header.Secret))
+	factor, err := k.factorOf(master)
+	if err != nil {
+		return err
+	}
+	defer seal.Wipe(factor)
+	g, err := seal.Wrap(master, guestSecret(pin, k.Header.Secret, factor))
 	if err != nil {
 		return err
 	}
@@ -288,7 +308,7 @@ func (k *Key) ChangePIN(t tpm.TPM, old, pin string) error {
 	if len(pin) < MinPIN {
 		return ErrShortPIN
 	}
-	master, err := k.guest(old)
+	master, err := k.unlockGuest(old)
 	if err != nil {
 		return err
 	}
@@ -300,18 +320,27 @@ func (k *Key) Recover(t tpm.TPM, code, pin string) error {
 	if len(pin) < MinPIN {
 		return ErrShortPIN
 	}
-	master, err := seal.Unwrap(k.Header.Recovery, []byte(seal.NormalizeCode(code)))
-	if errors.Is(err, seal.ErrWrongSecret) {
-		return ErrWrongCode
-	}
+	master, err := k.recoveryMaster(code)
 	if err != nil {
 		return err
 	}
 	defer seal.Wipe(master)
-	if err := k.Header.Verify(master); err != nil {
-		return err
-	}
 	return k.setPIN(t, master, pin)
+}
+
+func (k *Key) recoveryMaster(code string) ([]byte, error) {
+	master, err := seal.Unwrap(k.Header.Recovery, []byte(seal.NormalizeCode(code)))
+	if errors.Is(err, seal.ErrWrongSecret) {
+		return nil, ErrWrongCode
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := k.Header.Verify(master); err != nil {
+		seal.Wipe(master)
+		return nil, err
+	}
+	return master, nil
 }
 
 func DataKey(master []byte) []byte {

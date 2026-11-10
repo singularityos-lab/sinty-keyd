@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
+
+	"github.com/singularityos-lab/sinty-keyd/internal/fido2"
 )
 
 func TestTrustAndRevokeOverTheBus(t *testing.T) {
@@ -68,5 +70,58 @@ func TestTrustAndRevokeOverTheBus(t *testing.T) {
 	}
 	if err := obj.Call(Iface+".Devices", 0).Store(&list); err != nil || len(list) != 0 {
 		t.Fatalf("still trusted: %+v", list)
+	}
+}
+
+func TestSecurityKeysOverTheBus(t *testing.T) {
+	if _, err := exec.LookPath("dbus-daemon"); err != nil {
+		t.Skip("dbus-daemon not installed")
+	}
+	cmd := exec.Command("dbus-daemon", "--session", "--nofork", "--print-address")
+	out, _ := cmd.StdoutPipe()
+	if err := cmd.Start(); err != nil {
+		t.Skip(err)
+	}
+	defer cmd.Process.Kill()
+	addr, _ := bufio.NewReader(out).ReadString('\n')
+	addr = strings.TrimSpace(addr)
+	server, err := dbus.Connect(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	s, _, _, drive := setup(t, "pc-a")
+	usb := &plugged{keys: []*fido2.Soft{fido2.NewSoft()}}
+	s.keys = securityKeys{open: usb.open}
+	if err := Export(server, s); err != nil {
+		t.Fatal(err)
+	}
+	server.RequestName(Name, dbus.NameFlagDoNotQueue)
+	client, err := dbus.Connect(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	obj := client.Object(Name, Path)
+	if err := obj.Call(Iface+".Create", 0, drive, "482915").Err; err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	if err := obj.Call(Iface+".AddSecurityKey", 0, drive, "482915", "Blue", "").Store(&id); err != nil || id == "" {
+		t.Fatalf("add: %q %v", id, err)
+	}
+	var list []SecurityKeyInfo
+	if err := obj.Call(Iface+".SecurityKeys", 0, drive).Store(&list); err != nil || len(list) != 1 || list[0].ID != id {
+		t.Fatalf("list: %+v %v", list, err)
+	}
+	usb.keys = nil
+	obj.Call(Iface+".Lock", 0, drive)
+	err = obj.Call(Iface+".Unlock", 0, drive, "482915").Err
+	if e, ok := err.(dbus.Error); !ok || e.Name != errorPfx+"SecurityKeyRequired" {
+		t.Fatalf("unlock without the security key: %v", err)
+	}
+	var xml string
+	if err := obj.Call("org.freedesktop.DBus.Introspectable.Introspect", 0).Store(&xml); err != nil || !strings.Contains(xml, `name="SecurityKeys"`) || !strings.Contains(xml, `type="a(ssx)"`) {
+		t.Fatalf("introspection: %v", err)
 	}
 }

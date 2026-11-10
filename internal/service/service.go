@@ -17,6 +17,7 @@ import (
 	"github.com/godbus/dbus/v5/prop"
 
 	"github.com/singularityos-lab/sinty-keyd/internal/backup"
+	"github.com/singularityos-lab/sinty-keyd/internal/fido2"
 	"github.com/singularityos-lab/sinty-keyd/internal/fscrypt"
 	"github.com/singularityos-lab/sinty-keyd/internal/hw"
 	"github.com/singularityos-lab/sinty-keyd/internal/key"
@@ -46,16 +47,17 @@ func (kernel) RemoveKey(dir, id string) error                { return fscrypt.Re
 func (kernel) SetPolicy(dir, id string) error                { return fscrypt.SetPolicy(dir, id) }
 
 type Config struct {
-	TPM         tpm.TPM
-	Crypt       Crypt
-	Mounts      []string
-	SysRoot     string
-	CacheDir    string
-	MountInfo   string
-	TrustFile   string
-	PeekDir     string
-	Mounter     Mounter
-	AttachUsers []string
+	TPM          tpm.TPM
+	Crypt        Crypt
+	Mounts       []string
+	SysRoot      string
+	CacheDir     string
+	MountInfo    string
+	TrustFile    string
+	PeekDir      string
+	Mounter      Mounter
+	AttachUsers  []string
+	SecurityKeys func() ([]fido2.Transport, error)
 }
 
 type SlotInfo struct {
@@ -79,6 +81,7 @@ type Service struct {
 	props      *prop.Properties
 	conn       *dbus.Conn
 	onProgress func(dev string, pct uint32)
+	keys       securityKeys
 }
 
 func New(cfg Config) *Service {
@@ -103,7 +106,10 @@ func New(cfg Config) *Service {
 	if cfg.Mounter == nil {
 		cfg.Mounter = sysMounter{}
 	}
-	return &Service{cfg: cfg, open: map[string]unlocked{}}
+	if cfg.SecurityKeys == nil {
+		cfg.SecurityKeys = hidKeys(cfg.SysRoot)
+	}
+	return &Service{cfg: cfg, open: map[string]unlocked{}, keys: securityKeys{open: cfg.SecurityKeys}}
 }
 
 func Export(conn *dbus.Conn, s *Service) error {
@@ -137,6 +143,9 @@ func Export(conn *dbus.Conn, s *Service) error {
 
 func fail(err error) *dbus.Error {
 	name := "Failed"
+	if n := securityKeyError(err); n != "" {
+		name = n
+	}
 	switch {
 	case errors.Is(err, key.ErrWrongPIN):
 		name = "WrongPin"
@@ -285,7 +294,7 @@ func (s *Service) Unlock(root, pin string) (string, *dbus.Error) {
 	if u, ok := s.open[r]; ok {
 		return u.mode, nil
 	}
-	k, err := key.Open(r)
+	k, err := s.openKey(r)
 	if err != nil {
 		return "", fail(err)
 	}
@@ -329,7 +338,7 @@ func (s *Service) withKey(root string, fn func(*key.Key) error) *dbus.Error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	k, err := key.Open(r)
+	k, err := s.openKey(r)
 	if err != nil {
 		return fail(err)
 	}
@@ -395,7 +404,7 @@ func (s *Service) Backup(root, pin string, fd dbus.UnixFD) *dbus.Error {
 		return fail(err)
 	}
 	s.mu.Lock()
-	k, err := key.Open(r)
+	k, err := s.openKey(r)
 	if err != nil {
 		s.mu.Unlock()
 		return fail(err)

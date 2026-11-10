@@ -22,6 +22,10 @@ mount point of the Key under `/run/media/` or `/media/`.
 | `Unlock(root, pin)` / `Lock(root)` | | |
 | `Remember(root, pin, name)` / `Forget(root, pin, fingerprint)` | | Seal the Key in this computer's TPM, or drop the seal. |
 | `ChangePin(root, old, new)` / `Recover(root, code, pin)` | | |
+| `SecurityKeys(root)` | in `s`, out `a(ssx)` | FIDO2 security keys registered with the Key: id, name, time added. |
+| `AddSecurityKey(root, pin, name, keyPin)` | in `ssss`, out `s` | Registers the plugged-in security key. From then on the Key opens only with PIN, security key and, where remembered, the TPM. `keyPin` is the security key's own PIN, empty if it has none. |
+| `RemoveSecurityKey(root, pin, id)` | | Removing the last one turns the Key back into PIN and TPM only. |
+| `RecoverWithoutSecurityKeys(root, code, pin)` | | Sets a new PIN with the recovery code and drops every security key. |
 | `Backup(root, pin, fd)` / `Restore(fd, code, root, pin)` | | Restore returns the new recovery code. |
 | `Devices()` / `Revoke(kind, id)` | | Devices this computer trusts: Keys, screens and phones. |
 | `Trust(kind, id, name)` | in `sss` | Adds a screen or phone. System services only. |
@@ -29,7 +33,15 @@ mount point of the Key under `/run/media/` or `/media/`.
 
 Errors are `dev.sinty.Key1.Error.` followed by `WrongPin`, `WrongCode`,
 `Copy`, `ShortPin`, `Exists`, `NotAKey`, `NotRemembered`, `Tampered`,
-`NotAllowed`, `NoTpm`, `NotABackup`, `Damaged`, `Unknown` or `Failed`.
+`NotAllowed`, `NoTpm`, `NotABackup`, `Damaged`, `Unknown`,
+`SecurityKeyRequired`, `UnknownSecurityKey`, `SecurityKeyExists`,
+`TooManySecurityKeys`, `NoSecurityKey`, `NotTouched`, `SecurityKeyPinRequired`,
+`WrongSecurityKeyPin`, `SecurityKeyPinBlocked`, `SecurityKeyUnsupported` or
+`Failed`.
+
+A security key must support the CTAP2 `hmac-secret` extension. Its secret
+joins the PIN and the Key's own secret in the derivation of the master key,
+and masks what the TPM seals. The recovery code opens the Key without one.
 
 ## Building
 

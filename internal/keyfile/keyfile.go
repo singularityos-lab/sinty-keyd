@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	Format = 1
-	Dir    = ".sinty-key"
-	Name   = "key.json"
+	Format     = 2
+	FormatBase = 1
+	Dir        = ".sinty-key"
+	Name       = "key.json"
 )
 
 var (
@@ -36,18 +37,28 @@ type Slot struct {
 	LastUsed   time.Time `json:"last_used"`
 }
 
+type Factor struct {
+	ID      []byte    `json:"id"`
+	Name    string    `json:"name"`
+	Wrapped []byte    `json:"wrapped"`
+	Added   time.Time `json:"added"`
+}
+
 type Header struct {
-	Format   int       `json:"format"`
-	ID       string    `json:"id"`
-	Level    string    `json:"level"`
-	Owner    string    `json:"owner,omitempty"`
-	Created  time.Time `json:"created"`
-	Secret   []byte    `json:"secret"`
-	Guest    []byte    `json:"guest"`
-	Recovery []byte    `json:"recovery"`
-	PINEpoch uint64    `json:"pin_epoch"`
-	Slots    []Slot    `json:"slots"`
-	MAC      []byte    `json:"mac,omitempty"`
+	Format     int       `json:"format"`
+	ID         string    `json:"id"`
+	Level      string    `json:"level"`
+	Owner      string    `json:"owner,omitempty"`
+	Created    time.Time `json:"created"`
+	Secret     []byte    `json:"secret"`
+	Guest      []byte    `json:"guest"`
+	Recovery   []byte    `json:"recovery"`
+	PINEpoch   uint64    `json:"pin_epoch"`
+	Slots      []Slot    `json:"slots"`
+	Factors    []Factor  `json:"factors,omitempty"`
+	FactorSalt []byte    `json:"factor_salt,omitempty"`
+	FactorKey  []byte    `json:"factor_key,omitempty"`
+	MAC        []byte    `json:"mac,omitempty"`
 }
 
 func Path(root string) string {
@@ -114,6 +125,19 @@ func (h *Header) Slot(pc string) *Slot {
 	for i := range h.Slots {
 		if h.Slots[i].PC == pc {
 			return &h.Slots[i]
+		}
+	}
+	return nil
+}
+
+func (h *Header) Strong() bool {
+	return len(h.Factors) > 0
+}
+
+func (h *Header) Factor(id []byte) *Factor {
+	for i := range h.Factors {
+		if hmac.Equal(h.Factors[i].ID, id) {
+			return &h.Factors[i]
 		}
 	}
 	return nil
