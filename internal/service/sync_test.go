@@ -141,7 +141,9 @@ func TestSyncRefuses(t *testing.T) {
 	if len(*calls) != 0 {
 		t.Fatalf("updated ran: %v", *calls)
 	}
-	s.cfg.Updated = func(func(string), ...string) error { return errors.New("updated: stage-from: manifest signature invalid") }
+	s.cfg.Updated = func(func(string), ...string) error {
+		return errors.New("updated: stage-from: manifest signature invalid")
+	}
 	if derr := s.syncStartup("/dev/sdd", SyncKey); derr == nil || !strings.Contains(derr.Error(), "signature") {
 		t.Fatalf("failure hidden: %v", derr)
 	}

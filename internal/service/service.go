@@ -64,6 +64,7 @@ type Config struct {
 	Verify       func(sysroot string) error
 	MapHome      func(src, dst string, diskUID, diskGID, uid, gid int) error
 	Updated      func(onLine func(string), args ...string) error
+	Rescue       string
 }
 
 type SlotInfo struct {
@@ -90,6 +91,7 @@ type Service struct {
 	keys       securityKeys
 	badge      *badgeSession
 	syncMu     sync.Mutex
+	rescue     *rescueRun
 }
 
 func New(cfg Config) *Service {
@@ -131,6 +133,9 @@ func New(cfg Config) *Service {
 	}
 	if cfg.Updated == nil {
 		cfg.Updated = runUpdated
+	}
+	if cfg.Rescue == "" {
+		cfg.Rescue = "/usr/libexec/sinty-rescue"
 	}
 	return &Service{cfg: cfg, open: map[string]unlocked{}, keys: securityKeys{open: cfg.SecurityKeys}}
 }
