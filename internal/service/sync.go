@@ -69,17 +69,23 @@ func (s *Service) mountStartup(d startupDrive, readOnly bool) (string, string, f
 			return "", "", nil, err
 		}
 	}
+	s.cfg.Mounter.Unmount(esp)
+	s.cfg.Mounter.Unmount(data)
 	dev := func(p string) string { return filepath.Join(s.cfg.SysRoot, "dev", p) }
+	s.syncing.Store(true)
 	if err := s.cfg.Mounter.Mount(dev(d.data), data, "", readOnly); err != nil {
+		s.syncing.Store(false)
 		return "", "", nil, err
 	}
 	if err := s.cfg.Mounter.Mount(dev(d.esp), esp, "", readOnly); err != nil {
 		s.cfg.Mounter.Unmount(data)
+		s.syncing.Store(false)
 		return "", "", nil, err
 	}
 	return data, esp, func() {
 		s.cfg.Mounter.Unmount(esp)
 		s.cfg.Mounter.Unmount(data)
+		s.syncing.Store(false)
 	}, nil
 }
 

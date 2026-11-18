@@ -46,17 +46,24 @@ func (sysMounter) Mount(dev, dir, opts string, readOnly bool) error {
 	if readOnly {
 		flags |= syscall.MS_RDONLY
 	}
-	var last error
+	var first error
 	for _, fs := range fsTypes {
 		o := opts
 		if fs != "vfat" && fs != "exfat" {
 			o = ""
 		}
-		if last = syscall.Mount(dev, dir, fs, flags, o); last == nil {
+		err := syscall.Mount(dev, dir, fs, flags, o)
+		if err == nil {
 			return nil
 		}
+		if first == nil && err != syscall.EINVAL && err != syscall.ENODEV {
+			first = fmt.Errorf("mount %s as %s: %w", dev, fs, err)
+		}
 	}
-	return last
+	if first == nil {
+		return fmt.Errorf("mount %s: no supported filesystem", dev)
+	}
+	return first
 }
 
 func (sysMounter) Unmount(dir string) error { return syscall.Unmount(dir, syscall.MNT_DETACH) }
@@ -148,7 +155,11 @@ func (s *Service) Scan() {
 		return
 	}
 	mounted, _ := s.devNumbers()
+	startup := filepath.Join(s.cfg.PeekDir, "startup") + "/"
 	for num, root := range mounted {
+		if s.syncing.Load() && strings.HasPrefix(root, startup) {
+			continue
+		}
 		if strings.HasPrefix(root, s.cfg.PeekDir+"/") && s.cfg.Mounter.Unmount(root) == nil {
 			os.Remove(root)
 			delete(mounted, num)

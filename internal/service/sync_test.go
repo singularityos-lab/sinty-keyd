@@ -169,3 +169,32 @@ func TestPEArch(t *testing.T) {
 		t.Fatal(peArch(p))
 	}
 }
+
+func TestScanLeavesTheStartupMountsOfARunningSync(t *testing.T) {
+	s, m, sys, _ := syncSetup(t, "v3", "v5")
+	writeAnchor(t, filepath.Join(sys, "boot/rootfs"), "v5", "")
+	writeAnchor(t, s.keyRootfs(m), "v3", "x86_64")
+	wal := filepath.Join(s.cfg.PeekDir, "startup/data/boot/rootfs/deployment.json")
+	s.cfg.Updated = func(onLine func(string), args ...string) error {
+		s.Scan()
+		if _, err := os.Stat(wal); err != nil {
+			return err
+		}
+		return nil
+	}
+	if derr := s.syncStartup("/dev/sdd", SyncKey); derr != nil {
+		t.Fatal(derr)
+	}
+	if len(m.mounts) != 0 {
+		t.Fatalf("left mounted: %v", m.mounts)
+	}
+	data := filepath.Join(s.cfg.PeekDir, "startup/data")
+	m.mounts[data] = "x"
+	fh, _ := os.OpenFile(s.cfg.MountInfo, os.O_APPEND|os.O_WRONLY, 0)
+	fh.WriteString("42 1 8:50 / " + data + " rw - f2fs /dev/sdd2 rw\n")
+	fh.Close()
+	s.Scan()
+	if _, ok := m.mounts[data]; ok {
+		t.Fatal("a startup mount left by a crashed sync was not swept")
+	}
+}

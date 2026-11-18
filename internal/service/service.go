@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -91,6 +92,7 @@ type Service struct {
 	keys       securityKeys
 	badge      *badgeSession
 	syncMu     sync.Mutex
+	syncing    atomic.Bool
 	rescue     *rescueRun
 	moveMu     sync.Mutex
 }
