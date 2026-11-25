@@ -24,13 +24,14 @@ func main() {
 	trust := flag.String("trust", "/var/lib/sinty-keyd/trusted.json", "devices this computer trusts")
 	noTPM := flag.Bool("no-tpm", false, "never remember computers, every unlock is a guest unlock")
 	attach := flag.String("attach-users", "greeter", "comma-separated users allowed to attach a Key at login")
+	identity := flag.String("identity", "/var/lib/sinty-keyd/identity", "device keys for Sinty sign-ins, one directory per user")
 	flag.Parse()
 	log.SetFlags(0)
 	log.SetPrefix("sinty-keyd: ")
 	if os.Getenv("DBUS_SYSTEM_BUS_ADDRESS") == "" {
 		os.Setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/run/dbus/system_bus_socket")
 	}
-	cfg := service.Config{TrustFile: *trust, AttachUsers: strings.Split(*attach, ",")}
+	cfg := service.Config{TrustFile: *trust, AttachUsers: strings.Split(*attach, ","), IdentityDir: *identity}
 	if !*noTPM {
 		h := tpm.NewHelper(*state)
 		if _, err := h.Fingerprint(); err != nil {
