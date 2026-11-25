@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/singularityos-lab/libsingularity/src/system/core/go/polkit"
 	"github.com/godbus/dbus/v5/introspect"
 	"github.com/godbus/dbus/v5/prop"
 
@@ -66,6 +67,8 @@ type Config struct {
 	MapHome      func(src, dst string, diskUID, diskGID, uid, gid int) error
 	Updated      func(onLine func(string), args ...string) error
 	Rescue       string
+	IdentityDir  string
+	Confirm      func(sender dbus.Sender, action string) *dbus.Error
 }
 
 type SlotInfo struct {
@@ -95,6 +98,7 @@ type Service struct {
 	syncing    atomic.Bool
 	rescue     *rescueRun
 	moveMu     sync.Mutex
+	identityMu sync.Mutex
 }
 
 func New(cfg Config) *Service {
@@ -140,6 +144,9 @@ func New(cfg Config) *Service {
 	if cfg.Rescue == "" {
 		cfg.Rescue = "/usr/libexec/sinty-rescue"
 	}
+	if cfg.IdentityDir == "" {
+		cfg.IdentityDir = "/var/lib/sinty-keyd/identity"
+	}
 	return &Service{cfg: cfg, open: map[string]unlocked{}, keys: securityKeys{open: cfg.SecurityKeys}}
 }
 
@@ -172,6 +179,14 @@ func Export(conn *dbus.Conn, s *Service) error {
 		}},
 	}
 	return conn.Export(introspect.NewIntrospectable(node), Path, "org.freedesktop.DBus.Introspectable")
+}
+
+func (s *Service) confirm(sender dbus.Sender, action string) *dbus.Error {
+	if s.cfg.Confirm != nil {
+		return s.cfg.Confirm(sender, action)
+	}
+	a := &polkit.Authorizer{Conn: s.conn}
+	return a.Confirm(sender, action)
 }
 
 func fail(err error) *dbus.Error {

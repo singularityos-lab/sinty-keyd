@@ -2,7 +2,11 @@ package tpm
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"sync"
@@ -82,4 +86,37 @@ func (f *Fake) Bump(index uint32) (uint64, error) {
 	}
 	f.counters[index]++
 	return f.counters[index], nil
+}
+
+func (f *Fake) NewSigningKey(auth []byte) ([]byte, []byte, []byte, error) {
+	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	der, err := x509.MarshalECPrivateKey(k)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	pub, priv, err := f.Seal(der, string(auth))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	point := append(k.X.FillBytes(make([]byte, 32)), k.Y.FillBytes(make([]byte, 32))...)
+	return pub, priv, point, nil
+}
+
+func (f *Fake) Sign(auth, pub, priv, digest []byte) ([]byte, error) {
+	der, err := f.Unseal(string(auth), pub, priv)
+	if err != nil {
+		return nil, err
+	}
+	k, err := x509.ParseECPrivateKey(der)
+	if err != nil {
+		return nil, err
+	}
+	r, s, err := ecdsa.Sign(rand.Reader, k, digest)
+	if err != nil {
+		return nil, err
+	}
+	return append(r.FillBytes(make([]byte, 32)), s.FillBytes(make([]byte, 32))...), nil
 }

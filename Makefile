@@ -22,6 +22,7 @@ install: static
 	install -Dm644 packaging/sinty-keyd.service $(DESTDIR)$(PREFIX)/lib/systemd/system/sinty-keyd.service
 	install -Dm644 packaging/sinty-keyd.conf $(DESTDIR)$(PREFIX)/share/dbus-1/system.d/sinty-keyd.conf
 	install -Dm644 packaging/dev.sinty.Key1.service $(DESTDIR)$(PREFIX)/share/dbus-1/system-services/dev.sinty.Key1.service
+	install -Dm644 packaging/dev.sinty.key.policy $(DESTDIR)$(PREFIX)/share/polkit-1/actions/dev.sinty.key.policy
 
 clean:
 	rm -f $(BIN)

@@ -46,6 +46,9 @@ mount point of the Key under `/run/media/` or `/media/`.
 | `MoveHomeState(root, user, direction)` | in `sss`, out `s` | `copying` when a copy was interrupted, `verified` when it is complete and checked, empty otherwise. |
 | `FinishMove(root, user, direction, remove)` | in `sssb` | After a checked copy: with `remove`, checks it once more and deletes the original; without, keeps both. |
 | `BadgeKeyRemoved` / `BadgeKeyReturned` | signal | The session's Key was taken out, or is back. Without it the session ends after two minutes. |
+| `IdentityKey()` | out `ayb` | The caller's device key for Sinty sign-ins, made on first use: its P-256 public point, x then y, and whether it lives in the TPM. Without a TPM the key is a file only root reads. |
+| `IdentitySign(message)` | in `ay`, out `ay` | Signs a sinty-identity message with the caller's key, r then s. Polls and refusals are signed at once; allowing a sign-in, trusting a device or revoking one first asks the person for their PIN through polkit (`dev.sinty.key.identity-confirm`), every time. Other messages are refused. |
+| `ForgetIdentityKey()` | | Deletes the caller's device key. |
 
 Errors are `dev.sinty.Key1.Error.` followed by `WrongPin`, `WrongCode`,
 `Copy`, `ShortPin`, `Exists`, `NotAKey`, `NotRemembered`, `Tampered`,
@@ -53,7 +56,8 @@ Errors are `dev.sinty.Key1.Error.` followed by `WrongPin`, `WrongCode`,
 `SecurityKeyRequired`, `UnknownSecurityKey`, `SecurityKeyExists`,
 `TooManySecurityKeys`, `NoSecurityKey`, `NotTouched`, `SecurityKeyPinRequired`,
 `WrongSecurityKeyPin`, `SecurityKeyPinBlocked`, `SecurityKeyUnsupported`,
-`Disabled`, `Unverified`, `Busy` or `Failed`.
+`Disabled`, `Unverified`, `Busy`, `NotConfirmed`, `NoIdentityKey`,
+`LockedOut` or `Failed`.
 
 A security key must support the CTAP2 `hmac-secret` extension. Its secret
 joins the PIN and the Key's own secret in the derivation of the master key,

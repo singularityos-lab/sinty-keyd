@@ -22,7 +22,11 @@ type TPM interface {
 	NewCounter() (uint32, error)
 	Counter(index uint32) (uint64, error)
 	Bump(index uint32) (uint64, error)
+	NewSigningKey(auth []byte) (pub, priv, point []byte, err error)
+	Sign(auth, pub, priv, digest []byte) ([]byte, error)
 }
+
+var ErrLockedOut = errors.New("the TPM is locked out after too many attempts")
 
 type Helper struct {
 	Path    string
@@ -164,4 +168,54 @@ func (h *Helper) Counter(index uint32) (uint64, error) {
 
 func (h *Helper) Bump(index uint32) (uint64, error) {
 	return h.counter("counter-bump", index)
+}
+
+func (h *Helper) NewSigningKey(auth []byte) ([]byte, []byte, []byte, error) {
+	dir, done, err := h.scratch()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	defer done()
+	af, pub, priv, point := filepath.Join(dir, "auth"), filepath.Join(dir, "pub"), filepath.Join(dir, "priv"), filepath.Join(dir, "point")
+	if err := os.WriteFile(af, auth, 0o600); err != nil {
+		return nil, nil, nil, err
+	}
+	if _, code, err := h.run("sign-create", af, pub, priv, point); err != nil || code != 0 {
+		if err == nil {
+			err = fmt.Errorf("sign-create failed (%d)", code)
+		}
+		return nil, nil, nil, err
+	}
+	out := make([][]byte, 3)
+	for i, f := range []string{pub, priv, point} {
+		if out[i], err = os.ReadFile(f); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	return out[0], out[1], out[2], nil
+}
+
+func (h *Helper) Sign(auth, pub, priv, digest []byte) ([]byte, error) {
+	dir, done, err := h.scratch()
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	af, pf, rf, df, sf := filepath.Join(dir, "auth"), filepath.Join(dir, "pub"), filepath.Join(dir, "priv"), filepath.Join(dir, "digest"), filepath.Join(dir, "sig")
+	for name, data := range map[string][]byte{af: auth, pf: pub, rf: priv, df: digest} {
+		if err := os.WriteFile(name, data, 0o600); err != nil {
+			return nil, err
+		}
+	}
+	_, code, err := h.run("sign", af, pf, rf, df, sf)
+	if err != nil {
+		return nil, err
+	}
+	switch code {
+	case 0:
+		return os.ReadFile(sf)
+	case 75:
+		return nil, ErrLockedOut
+	}
+	return nil, fmt.Errorf("sign failed (%d)", code)
 }
