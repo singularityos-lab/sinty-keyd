@@ -2,6 +2,7 @@ package service
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/singularityos-lab/libsingularity/src/system/core/go/uevent"
 
 	"github.com/singularityos-lab/sinty-keyd/internal/key"
 	"github.com/singularityos-lab/sinty-keyd/internal/keyfile"
@@ -230,16 +232,11 @@ func (s *Service) Present() []PresentKey {
 }
 
 func (s *Service) FollowDevices() error {
-	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_DGRAM|syscall.SOCK_CLOEXEC, syscall.NETLINK_KOBJECT_UEVENT)
+	m, err := uevent.Open(uevent.Match{Subsystem: "block"})
 	if err != nil {
 		return err
 	}
-	defer syscall.Close(fd)
-	if err := syscall.Bind(fd, &syscall.SockaddrNetlink{Family: syscall.AF_NETLINK, Groups: 1}); err != nil {
-		return err
-	}
 	s.Scan()
-	buf := make([]byte, 8192)
 	pending := make(chan struct{}, 1)
 	go func() {
 		for range pending {
@@ -247,22 +244,12 @@ func (s *Service) FollowDevices() error {
 			s.Scan()
 		}
 	}()
-	for {
-		n, err := syscall.Read(fd, buf)
-		if err == syscall.EINTR {
-			continue
+	return m.Run(context.Background(), func(uevent.Event, error) {
+		select {
+		case pending <- struct{}{}:
+		default:
 		}
-		if err != nil {
-			return err
-		}
-		msg := string(buf[:n])
-		if strings.Contains(msg, "SUBSYSTEM=block") || strings.Contains(msg, "/block/") {
-			select {
-			case pending <- struct{}{}:
-			default:
-			}
-		}
-	}
+	})
 }
 
 func (s *Service) senderUID(sender dbus.Sender) (uint32, error) {

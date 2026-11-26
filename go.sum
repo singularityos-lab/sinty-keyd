@@ -1,7 +1,7 @@
 github.com/godbus/dbus/v5 v5.2.2 h1:TUR3TgtSVDmjiXOgAAyaZbYmIeP3DPkld3jgKGV8mXQ=
 github.com/godbus/dbus/v5 v5.2.2/go.mod h1:3AAv2+hPq5rdnr5txxxRwiGjPXamgoIHgz9FPBfOp3c=
-github.com/singularityos-lab/libsingularity/src/system/core/go v0.0.0-20261125121256-4e9f1ddc0a45 h1:yiaKvb8Q6WIg9k5ETLfDeankR0tQCj4/yi3a+O9Ascs=
-github.com/singularityos-lab/libsingularity/src/system/core/go v0.0.0-20261125121256-4e9f1ddc0a45/go.mod h1:xcDhgqbRfCWp+tX052LmN5JltZ72SWiTnFTm0jURylo=
+github.com/singularityos-lab/libsingularity/src/system/core/go v0.0.0-20261126062002-cbac9074558c h1:Qf1CajWJNGswwyb8GH72FLglIzKSdPCskuzWcSqT5cI=
+github.com/singularityos-lab/libsingularity/src/system/core/go v0.0.0-20261126062002-cbac9074558c/go.mod h1:xcDhgqbRfCWp+tX052LmN5JltZ72SWiTnFTm0jURylo=
 github.com/singularityos-lab/sinty-identity v0.0.0-20261125121517-01e5807aaa84 h1:i8mLQQynvzV2PuSXzwPsyxAQxMjscXamiY4N9R95xDY=
 github.com/singularityos-lab/sinty-identity v0.0.0-20261125121517-01e5807aaa84/go.mod h1:4J750eq+wpnvsBR7XeCGByf1bLx0ETc/Rfu4kGHe6ac=
 golang.org/x/crypto v0.45.0 h1:jMBrvKuj23MTlT0bQEOBcAE0mjg8mK9RXFhRH6nyF3Q=

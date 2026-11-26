@@ -8,7 +8,7 @@ require (
 )
 
 require (
-	github.com/singularityos-lab/libsingularity/src/system/core/go v0.0.0-20261125121256-4e9f1ddc0a45
+	github.com/singularityos-lab/libsingularity/src/system/core/go v0.0.0-20261126062002-cbac9074558c
 	github.com/singularityos-lab/sinty-identity v0.0.0-20261125121517-01e5807aaa84
 	golang.org/x/sys v0.38.0
 )
