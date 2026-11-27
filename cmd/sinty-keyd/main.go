@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
+
+	"github.com/singularityos-lab/libsingularity/src/system/core/go/busname"
 
 	"github.com/singularityos-lab/sinty-keyd/internal/badge"
 	"github.com/singularityos-lab/sinty-keyd/internal/service"
@@ -57,8 +60,7 @@ func main() {
 	if err := service.Export(conn, s); err != nil {
 		log.Fatal(err)
 	}
-	reply, err := conn.RequestName(service.Name, dbus.NameFlagDoNotQueue)
-	if err != nil || reply != dbus.RequestNameReplyPrimaryOwner {
+	if err := busname.Own(context.Background(), conn, service.Name); err != nil {
 		log.Fatalf("cannot own %s: %v", service.Name, err)
 	}
 	log.Printf("serving %s", service.Name)
